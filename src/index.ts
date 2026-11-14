@@ -12,6 +12,7 @@ import { ShortCreator } from "./short-creator/ShortCreator";
 import { logger } from "./logger";
 import { Server } from "./server/server";
 import { MusicManager } from "./short-creator/music";
+import { createLeadFinder } from "./lead-finder";
 
 async function main() {
   const config = new Config();
@@ -82,7 +83,15 @@ async function main() {
   }
 
   logger.debug("initializing the server");
-  const server = new Server(config, shortCreator);
+  let leadFinder;
+  if (process.env.LEAD_FINDER_ENABLED !== "false") {
+    try {
+      leadFinder = createLeadFinder();
+    } catch (error: unknown) {
+      logger.error(error, "lead finder failed to start - continuing without it");
+    }
+  }
+  const server = new Server(config, shortCreator, leadFinder);
   const app = server.start();
 
   // todo add shutdown handler

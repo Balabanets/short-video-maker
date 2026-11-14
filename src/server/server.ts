@@ -10,12 +10,18 @@ import { APIRouter } from "./routers/rest";
 import { MCPRouter } from "./routers/mcp";
 import { logger } from "../logger";
 import { Config } from "../config";
+import type { LeadFinder } from "../lead-finder/LeadFinder";
+import { createLeadFinderRouter } from "../lead-finder/router";
 
 export class Server {
   private app: express.Application;
   private config: Config;
 
-  constructor(config: Config, shortCreator: ShortCreator) {
+  constructor(
+    config: Config,
+    shortCreator: ShortCreator,
+    leadFinder?: LeadFinder,
+  ) {
     this.config = config;
     this.app = express();
 
@@ -26,6 +32,9 @@ export class Server {
 
     const apiRouter = new APIRouter(config, shortCreator);
     const mcpRouter = new MCPRouter(shortCreator);
+    if (leadFinder) {
+      this.app.use("/api/leads", createLeadFinderRouter(leadFinder));
+    }
     this.app.use("/api", apiRouter.router);
     this.app.use("/mcp", mcpRouter.router);
 
