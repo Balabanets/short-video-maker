@@ -53,7 +53,7 @@ interface LeadComment {
 
 interface Lead {
   id: number;
-  platform: 'youtube' | 'tiktok';
+  platform: 'youtube' | 'tiktok' | 'discord';
   authorName: string;
   authorUrl: string;
   status: string;
@@ -66,6 +66,7 @@ interface Lead {
 
 interface Status {
   youtubeConfigured: boolean;
+  discordConfigured: boolean;
   llmClassifier: string | null;
   scanning: boolean;
   quota: { used: number; budget: number };
@@ -77,7 +78,7 @@ const Leads: React.FC = () => {
   const [status, setStatus] = useState<Status | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filters, setFilters] = useState({ status: 'new', category: '', minScore: '40', search: '' });
+  const [filters, setFilters] = useState({ status: 'new', category: '', platform: '', minScore: '40', search: '' });
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(25);
 
@@ -122,7 +123,7 @@ const Leads: React.FC = () => {
       await axios.post('/api/leads/scan');
       setStatus((s) => (s ? { ...s, scanning: true } : s));
     } catch (e) {
-      setError('Скан уже идёт или не настроен YOUTUBE_API_KEY');
+      setError('Скан уже идёт или не настроены YOUTUBE_API_KEY / DISCORD_BOT_TOKEN');
     }
   };
 
@@ -143,7 +144,7 @@ const Leads: React.FC = () => {
             variant="contained"
             startIcon={<RefreshIcon />}
             onClick={scan}
-            disabled={!status?.youtubeConfigured || status?.scanning}
+            disabled={!(status?.youtubeConfigured || status?.discordConfigured) || status?.scanning}
           >
             {status?.scanning ? 'Сканирую…' : 'Сканировать'}
           </Button>
@@ -152,7 +153,8 @@ const Leads: React.FC = () => {
 
       {status && (
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          YouTube API: {status.youtubeConfigured ? 'подключен' : 'не настроен (только импорт)'} · квота сегодня{' '}
+          YouTube API: {status.youtubeConfigured ? 'подключен' : 'не настроен'} · Discord-бот:{' '}
+          {status.discordConfigured ? 'подключен' : 'не настроен'} · квота YouTube сегодня{' '}
           {status.quota.used}/{status.quota.budget} · классификатор: {status.llmClassifier ?? 'правила'}
         </Typography>
       )}
@@ -168,6 +170,12 @@ const Leads: React.FC = () => {
           <MenuItem value="">Все</MenuItem>
           {['dissatisfied', 'seeking', 'newcomer'].map((c) => (
             <MenuItem key={c} value={c}>{CATEGORY_LABELS[c]}</MenuItem>
+          ))}
+        </TextField>
+        <TextField select label="Площадка" size="small" value={filters.platform} onChange={setFilter('platform')} sx={{ minWidth: 140 }}>
+          <MenuItem value="">Все</MenuItem>
+          {['youtube', 'tiktok', 'discord'].map((p) => (
+            <MenuItem key={p} value={p}>{p}</MenuItem>
           ))}
         </TextField>
         <TextField label="Мин. скор" size="small" type="number" value={filters.minScore} onChange={setFilter('minScore')} sx={{ width: 110 }} />

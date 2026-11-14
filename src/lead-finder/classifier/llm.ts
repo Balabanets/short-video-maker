@@ -42,8 +42,10 @@ export interface LlmContext {
   ownServerName?: string;
 }
 
-const SYSTEM_PROMPT = `You help a game-server owner find potential players in public YouTube/TikTok comments.
+const SYSTEM_PROMPT = `You help a game-server owner find potential players in YouTube/TikTok comments and Discord chat messages.
 The owner will read every lead and reach out by hand, so precision matters more than recall: a wrong lead wastes their time.
+
+Discord messages are short chat lines in community servers: judge each one on its own text; casual chatter, memes and in-game coordination are "irrelevant".
 
 For each comment decide:
 - category:

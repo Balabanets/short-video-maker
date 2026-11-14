@@ -50,6 +50,7 @@ const csvCell = (v: unknown) => {
  *   POST   /campaigns/:id/scan     scan one campaign now (waits for the result)
  *   POST   /scan                   scan all enabled campaigns in the background
  *   GET    /scans                  recent scan reports
+ *   GET    /discord                bot invite link + servers/channels it can read (IDs for campaigns)
  *   GET    /                       list leads (filters: status, category, platform, minScore, campaignId, search, sort, limit, offset)
  *   GET    /export.csv             same filters, CSV for spreadsheets / CRM import
  *   GET    /stats                  insights: statuses, categories, competitor mentions, best videos/channels
@@ -88,11 +89,9 @@ export function createLeadFinderRouter(finder: LeadFinder): express.Router {
           return;
         }
         logger.error(error, "lead finder API error");
-        res
-          .status(500)
-          .json({
-            error: error instanceof Error ? error.message : "unknown error",
-          });
+        res.status(500).json({
+          error: error instanceof Error ? error.message : "unknown error",
+        });
       }
     };
 
@@ -157,6 +156,18 @@ export function createLeadFinderRouter(finder: LeadFinder): express.Router {
         return res.status(409).json({ error: "a scan is already running" });
       finder.scanAll().catch((e) => logger.error(e, "lead scan failed"));
       res.status(202).json({ started: true });
+    }),
+  );
+
+  router.get(
+    "/discord",
+    handle(async (_req, res) => {
+      if (!finder.status().discordConfigured) {
+        return res
+          .status(400)
+          .json({ error: "DISCORD_BOT_TOKEN is not configured" });
+      }
+      res.json(await finder.discordOverview());
     }),
   );
 

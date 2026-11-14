@@ -4,6 +4,8 @@ import "dotenv/config";
 
 export interface LeadFinderConfig {
   youtubeApiKey?: string;
+  /** Bot token from the Discord Developer Portal (Bot → Reset Token). */
+  discordBotToken?: string;
   dbPath: string;
   /** null = LLM classification off, rules only. */
   llm: { apiKey?: string; model: string; prefilter: "signals" | "all" } | null;
@@ -28,6 +30,7 @@ export function loadLeadFinderConfig(
     Boolean(env.ANTHROPIC_API_KEY || env.LEAD_FINDER_LLM === "true");
   return {
     youtubeApiKey: env.YOUTUBE_API_KEY || undefined,
+    discordBotToken: env.DISCORD_BOT_TOKEN || undefined,
     dbPath: env.LEAD_FINDER_DB_PATH || path.join(dataDir, "leads.db"),
     llm: llmEnabled
       ? {

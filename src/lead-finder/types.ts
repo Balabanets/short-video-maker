@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const platforms = ["youtube", "tiktok"] as const;
+export const platforms = ["youtube", "tiktok", "discord"] as const;
 export type Platform = (typeof platforms)[number];
 
 /**
@@ -39,6 +39,19 @@ export const campaignSchema = z.object({
   channelIds: z.array(z.string().min(1)).default([]),
   /** Explicit videos to scan (IDs or URLs). */
   videoIds: z.array(z.string().min(1)).default([]),
+  /**
+   * Discord servers (guild IDs) where YOUR bot was invited — every readable text channel,
+   * forum and active thread is scanned. Partner / clan / streamer communities, your own server.
+   */
+  discordGuildIds: z.array(z.string().regex(/^\d{15,25}$/)).default([]),
+  /** Specific Discord channels (IDs) to scan instead of / in addition to whole servers. */
+  discordChannelIds: z.array(z.string().regex(/^\d{15,25}$/)).default([]),
+  /** Channels to skip (e.g. #rules, #staff, off-topic memes). Excluding a forum skips its posts. */
+  discordExcludeChannelIds: z
+    .array(z.string().regex(/^\d{15,25}$/))
+    .default([]),
+  /** Max Discord messages read per channel per scan; the rest is read on the next scan. */
+  maxMessagesPerChannel: z.number().int().positive().max(10000).default(1000),
   /** Names of competitor servers — mentions are stored to see who players leave. */
   competitorNames: z.array(z.string().min(1)).default([]),
   /** Your own server name — comments by people already playing on it are skipped. */
@@ -130,6 +143,7 @@ export interface ScanReport {
   startedAt: string;
   finishedAt: string;
   videosScanned: number;
+  discordChannelsScanned: number;
   commentsRead: number;
   leadsFound: number;
   newLeads: number;

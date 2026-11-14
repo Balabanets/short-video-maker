@@ -14,6 +14,7 @@ import {
   YouTubeVideo,
   parseVideoId,
 } from "./sources/youtube";
+import { DiscordClient, DiscordChannel } from "./sources/discord";
 import type {
   Campaign,
   CampaignConfig,
@@ -42,6 +43,7 @@ const quotaDay = () =>
 
 export class LeadFinder {
   private youtube: YouTubeClient | null;
+  private discord: DiscordClient | null;
   private llm: LlmClassifier | null;
   private running: Promise<ScanReport[]> | null = null;
   private timer: NodeJS.Timeout | null = null;
@@ -50,8 +52,18 @@ export class LeadFinder {
   constructor(
     public readonly config: LeadFinderConfig,
     public readonly store: LeadStore,
-    deps: { youtube?: YouTubeClient | null; llm?: LlmClassifier | null } = {},
+    deps: {
+      youtube?: YouTubeClient | null;
+      discord?: DiscordClient | null;
+      llm?: LlmClassifier | null;
+    } = {},
   ) {
+    this.discord =
+      deps.discord !== undefined
+        ? deps.discord
+        : config.discordBotToken
+          ? new DiscordClient(config.discordBotToken)
+          : null;
     this.youtube =
       deps.youtube !== undefined
         ? deps.youtube
@@ -70,6 +82,7 @@ export class LeadFinder {
     this.rollQuotaDay();
     return {
       youtubeConfigured: Boolean(this.youtube),
+      discordConfigured: Boolean(this.discord),
       llmClassifier: this.llm ? (this.config.llm?.model ?? "custom") : null,
       scanning: Boolean(this.running),
       scheduleMinutes: this.config.scanIntervalMinutes,
@@ -78,6 +91,35 @@ export class LeadFinder {
         used: this.quota.used,
         budget: this.config.dailyQuotaBudget,
       },
+    };
+  }
+
+  /**
+   * For panel setup: invite link for the bot and the servers/channels it can read,
+   * so the operator can copy guild and channel IDs into a campaign.
+   */
+  async discordOverview() {
+    if (!this.discord) throw new Error("DISCORD_BOT_TOKEN is not configured");
+    const app = await this.discord.application();
+    const guilds = await this.discord.listGuilds();
+    const withChannels = [];
+    for (const g of guilds) {
+      const channels = await this.discord
+        .listReadableChannels(g.id)
+        .catch(() => []);
+      withChannels.push({
+        ...g,
+        channels: channels.map((c) => ({
+          id: c.id,
+          name: c.name,
+          type: c.type,
+        })),
+      });
+    }
+    return {
+      bot: app.name,
+      inviteUrl: this.discord.inviteUrl(app.id),
+      guilds: withChannels,
     };
   }
 
@@ -158,6 +200,7 @@ export class LeadFinder {
       startedAt: new Date().toISOString(),
       finishedAt: "",
       videosScanned: 0,
+      discordChannelsScanned: 0,
       commentsRead: 0,
       leadsFound: 0,
       newLeads: 0,
@@ -166,60 +209,36 @@ export class LeadFinder {
     };
     logger.info({ campaign: campaign.name }, "lead scan started");
 
-    try {
-      if (!this.youtube)
-        throw new Error("YOUTUBE_API_KEY is not configured (import-only mode)");
-      const videos = await this.collectVideos(campaign, report);
-      for (const video of videos) {
-        const state = this.store.getVideoScanState("youtube", video.videoId);
-        if (
-          state &&
-          this.config.minRescanMinutes > 0 &&
-          Date.now() - Date.parse(state.lastScannedAt) <
-            this.config.minRescanMinutes * 60_000
-        ) {
-          continue;
-        }
-        try {
-          const comments = await this.yt(QUOTA_COST.list, (yt) =>
-            yt.fetchComments(video, {
-              since: state?.newestCommentAt,
-              limit: campaign.maxCommentsPerVideo,
-            }),
-          );
-          const result = await this.processComments(
-            comments,
-            campaign,
-            campaign.id,
-          );
-          const newest = comments.reduce<string | null>(
-            (max, c) => (!max || c.publishedAt > max ? c.publishedAt : max),
-            null,
-          );
-          this.store.recordVideoScan({
-            platform: "youtube",
-            videoId: video.videoId,
-            title: video.title,
-            channelTitle: video.channelTitle,
-            newestCommentAt: newest,
-            commentsRead: comments.length,
-            leadsFound: result.leadsFound,
-          });
-          report.videosScanned++;
-          report.commentsRead += comments.length;
-          report.leadsFound += result.leadsFound;
-          report.newLeads += result.newLeads;
-        } catch (e) {
-          if (e instanceof QuotaExceededError) throw e;
-          report.errors.push(`${video.videoId}: ${(e as Error).message}`);
-        }
+    const sources: [string, boolean, () => Promise<void>][] = [
+      [
+        "youtube",
+        campaign.queries.length +
+          campaign.channelIds.length +
+          campaign.videoIds.length >
+          0,
+        () => this.scanYouTube(campaign, report),
+      ],
+      [
+        "discord",
+        campaign.discordGuildIds.length + campaign.discordChannelIds.length > 0,
+        () => this.scanDiscord(campaign, report),
+      ],
+    ];
+    for (const [name, configured, scan] of sources) {
+      if (!configured) continue;
+      try {
+        await scan();
+      } catch (e) {
+        report.errors.push(`${name}: ${(e as Error).message}`);
+        logger.warn(
+          {
+            campaign: campaign.name,
+            source: name,
+            error: (e as Error).message,
+          },
+          "lead scan stopped early",
+        );
       }
-    } catch (e) {
-      report.errors.push((e as Error).message);
-      logger.warn(
-        { campaign: campaign.name, error: (e as Error).message },
-        "lead scan stopped early",
-      );
     }
 
     this.store.markCampaignRun(campaign.id);
@@ -231,6 +250,125 @@ export class LeadFinder {
       "lead scan finished",
     );
     return report;
+  }
+
+  private async scanYouTube(campaign: Campaign, report: ScanReport) {
+    if (!this.youtube) {
+      throw new Error("YOUTUBE_API_KEY is not configured (import-only mode)");
+    }
+    const videos = await this.collectVideos(campaign, report);
+    for (const video of videos) {
+      const state = this.store.getVideoScanState("youtube", video.videoId);
+      if (this.scannedRecently(state)) continue;
+      try {
+        const comments = await this.yt(QUOTA_COST.list, (yt) =>
+          yt.fetchComments(video, {
+            since: state?.newestCommentAt,
+            limit: campaign.maxCommentsPerVideo,
+          }),
+        );
+        const result = await this.processComments(
+          comments,
+          campaign,
+          campaign.id,
+        );
+        const newest = comments.reduce<string | null>(
+          (max, c) => (!max || c.publishedAt > max ? c.publishedAt : max),
+          null,
+        );
+        this.store.recordVideoScan({
+          platform: "youtube",
+          videoId: video.videoId,
+          title: video.title,
+          channelTitle: video.channelTitle,
+          newestCommentAt: newest,
+          commentsRead: comments.length,
+          leadsFound: result.leadsFound,
+        });
+        report.videosScanned++;
+        report.commentsRead += comments.length;
+        report.leadsFound += result.leadsFound;
+        report.newLeads += result.newLeads;
+      } catch (e) {
+        if (e instanceof QuotaExceededError) throw e;
+        report.errors.push(`${video.videoId}: ${(e as Error).message}`);
+      }
+    }
+  }
+
+  private async scanDiscord(campaign: Campaign, report: ScanReport) {
+    if (!this.discord) throw new Error("DISCORD_BOT_TOKEN is not configured");
+    const discord = this.discord;
+
+    const byId = new Map<string, DiscordChannel>();
+    for (const guildId of campaign.discordGuildIds) {
+      try {
+        const channels = await discord.listReadableChannels(
+          guildId,
+          campaign.discordExcludeChannelIds,
+        );
+        channels.forEach((c) => byId.set(c.id, c));
+      } catch (e) {
+        report.errors.push(`discord guild ${guildId}: ${(e as Error).message}`);
+      }
+    }
+    for (const channelId of campaign.discordChannelIds) {
+      if (byId.has(channelId)) continue;
+      try {
+        byId.set(channelId, await discord.getChannel(channelId));
+      } catch (e) {
+        report.errors.push(
+          `discord channel ${channelId}: ${(e as Error).message}`,
+        );
+      }
+    }
+
+    const windowStart = new Date(
+      Date.now() - campaign.publishedWithinDays * 86_400_000,
+    ).toISOString();
+    for (const channel of byId.values()) {
+      const state = this.store.getVideoScanState("discord", channel.id);
+      if (this.scannedRecently(state)) continue;
+      try {
+        const since =
+          state?.newestCommentAt && state.newestCommentAt > windowStart
+            ? state.newestCommentAt
+            : windowStart;
+        const { messages, cursorAt } = await discord.fetchMessages(channel, {
+          since,
+          limit: campaign.maxMessagesPerChannel,
+        });
+        const result = await this.processComments(
+          messages,
+          campaign,
+          campaign.id,
+        );
+        this.store.recordVideoScan({
+          platform: "discord",
+          videoId: channel.id,
+          title: messages[0]?.videoTitle ?? `#${channel.name}`,
+          channelTitle: channel.guildName,
+          newestCommentAt: cursorAt,
+          commentsRead: messages.length,
+          leadsFound: result.leadsFound,
+        });
+        report.discordChannelsScanned++;
+        report.commentsRead += messages.length;
+        report.leadsFound += result.leadsFound;
+        report.newLeads += result.newLeads;
+      } catch (e) {
+        report.errors.push(`discord #${channel.name}: ${(e as Error).message}`);
+      }
+    }
+  }
+
+  private scannedRecently(state: { lastScannedAt: string } | null): boolean {
+    return Boolean(
+      state &&
+        this.config.minRescanMinutes > 0 &&
+        Date.now() - Date.parse(state.lastScannedAt) <
+          this.config.minRescanMinutes * 60_000,
+    );
   }
 
   private async collectVideos(
