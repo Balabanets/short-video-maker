@@ -9,13 +9,21 @@ export { createLeadFinderRouter } from "./router";
 export { loadLeadFinderConfig } from "./config";
 export * from "./types";
 
-export function createLeadFinder(config: LeadFinderConfig = loadLeadFinderConfig()): LeadFinder {
+export function createLeadFinder(
+  config: LeadFinderConfig = loadLeadFinderConfig(),
+): LeadFinder {
   const finder = new LeadFinder(config, new LeadStore(config.dbPath));
   if (!config.youtubeApiKey) {
-    logger.warn("YOUTUBE_API_KEY is not set — lead finder works in import-only mode");
+    logger.warn(
+      "YOUTUBE_API_KEY is not set — lead finder works in import-only mode",
+    );
   }
   logger.info(
-    { db: config.dbPath, llm: config.llm?.model ?? "off (rules only)", schedule: config.scanIntervalMinutes },
+    {
+      db: config.dbPath,
+      llm: config.llm?.model ?? "off (rules only)",
+      schedule: config.scanIntervalMinutes,
+    },
     "lead finder ready",
   );
   finder.startScheduler();

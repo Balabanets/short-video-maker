@@ -82,18 +82,32 @@ export function createLeadFinderRouter(finder: LeadFinder): express.Router {
         await fn(req, res);
       } catch (error: unknown) {
         if (error instanceof z.ZodError) {
-          res.status(400).json({ error: "validation failed", issues: error.issues });
+          res
+            .status(400)
+            .json({ error: "validation failed", issues: error.issues });
           return;
         }
         logger.error(error, "lead finder API error");
-        res.status(500).json({ error: error instanceof Error ? error.message : "unknown error" });
+        res
+          .status(500)
+          .json({
+            error: error instanceof Error ? error.message : "unknown error",
+          });
       }
     };
 
-  router.get("/status", handle((_req, res) => res.json(finder.status())));
+  router.get(
+    "/status",
+    handle((_req, res) => res.json(finder.status())),
+  );
 
   // ------------------------------------------------------------ campaigns
-  router.get("/campaigns", handle((_req, res) => res.json({ campaigns: finder.store.listCampaigns() })));
+  router.get(
+    "/campaigns",
+    handle((_req, res) =>
+      res.json({ campaigns: finder.store.listCampaigns() }),
+    ),
+  );
 
   router.post(
     "/campaigns",
@@ -107,7 +121,8 @@ export function createLeadFinderRouter(finder: LeadFinder): express.Router {
     "/campaigns/:id",
     handle((req, res) => {
       const id = idParam(req);
-      if (!id || !finder.store.getCampaign(id)) return res.status(404).json({ error: "not found" });
+      if (!id || !finder.store.getCampaign(id))
+        return res.status(404).json({ error: "not found" });
       res.json(finder.store.updateCampaign(id, campaignSchema.parse(req.body)));
     }),
   );
@@ -116,7 +131,9 @@ export function createLeadFinderRouter(finder: LeadFinder): express.Router {
     "/campaigns/:id",
     handle((req, res) => {
       const id = idParam(req);
-      res.status(id && finder.store.deleteCampaign(id) ? 200 : 404).json({ success: Boolean(id) });
+      res
+        .status(id && finder.store.deleteCampaign(id) ? 200 : 404)
+        .json({ success: Boolean(id) });
     }),
   );
 
@@ -124,8 +141,10 @@ export function createLeadFinderRouter(finder: LeadFinder): express.Router {
     "/campaigns/:id/scan",
     handle(async (req, res) => {
       const id = idParam(req);
-      if (!id || !finder.store.getCampaign(id)) return res.status(404).json({ error: "not found" });
-      if (finder.status().scanning) return res.status(409).json({ error: "a scan is already running" });
+      if (!id || !finder.store.getCampaign(id))
+        return res.status(404).json({ error: "not found" });
+      if (finder.status().scanning)
+        return res.status(409).json({ error: "a scan is already running" });
       const [report] = await finder.scanAll([id]);
       res.json(report);
     }),
@@ -134,13 +153,17 @@ export function createLeadFinderRouter(finder: LeadFinder): express.Router {
   router.post(
     "/scan",
     handle((_req, res) => {
-      if (finder.status().scanning) return res.status(409).json({ error: "a scan is already running" });
+      if (finder.status().scanning)
+        return res.status(409).json({ error: "a scan is already running" });
       finder.scanAll().catch((e) => logger.error(e, "lead scan failed"));
       res.status(202).json({ started: true });
     }),
   );
 
-  router.get("/scans", handle((_req, res) => res.json({ scans: finder.store.listScanRuns() })));
+  router.get(
+    "/scans",
+    handle((_req, res) => res.json({ scans: finder.store.listScanRuns() })),
+  );
 
   // ------------------------------------------------------------ import
   router.post(
@@ -152,20 +175,54 @@ export function createLeadFinderRouter(finder: LeadFinder): express.Router {
   );
 
   // ------------------------------------------------------------ leads
-  router.get("/stats", handle((_req, res) => res.json(finder.store.stats())));
+  router.get(
+    "/stats",
+    handle((_req, res) => res.json(finder.store.stats())),
+  );
 
   router.get(
     "/export.csv",
     handle((req, res) => {
       const q = leadQuerySchema.parse(req.query);
-      const { items } = finder.store.listLeads({ ...q, limit: 500, offset: q.offset ?? 0 });
-      const header = ["id", "platform", "author", "profile_url", "status", "score", "category", "comment", "comment_url", "video_title", "video_url", "published_at", "notes"];
+      const { items } = finder.store.listLeads({
+        ...q,
+        limit: 500,
+        offset: q.offset ?? 0,
+      });
+      const header = [
+        "id",
+        "platform",
+        "author",
+        "profile_url",
+        "status",
+        "score",
+        "category",
+        "comment",
+        "comment_url",
+        "video_title",
+        "video_url",
+        "published_at",
+        "notes",
+      ];
       const lines = [header.join(",")];
       for (const lead of items) {
         const c = lead.comments[0];
         lines.push(
-          [lead.id, lead.platform, lead.authorName, lead.authorUrl, lead.status, lead.bestScore, lead.bestCategory,
-            c?.text, c?.commentUrl, c?.videoTitle, c?.videoUrl, c?.publishedAt, lead.notes]
+          [
+            lead.id,
+            lead.platform,
+            lead.authorName,
+            lead.authorUrl,
+            lead.status,
+            lead.bestScore,
+            lead.bestCategory,
+            c?.text,
+            c?.commentUrl,
+            c?.videoTitle,
+            c?.videoUrl,
+            c?.publishedAt,
+            lead.notes,
+          ]
             .map(csvCell)
             .join(","),
         );
@@ -178,7 +235,9 @@ export function createLeadFinderRouter(finder: LeadFinder): express.Router {
 
   router.get(
     "/",
-    handle((req, res) => res.json(finder.store.listLeads(leadQuerySchema.parse(req.query)))),
+    handle((req, res) =>
+      res.json(finder.store.listLeads(leadQuerySchema.parse(req.query))),
+    ),
   );
 
   router.get(
@@ -195,7 +254,8 @@ export function createLeadFinderRouter(finder: LeadFinder): express.Router {
     "/:id",
     handle((req, res) => {
       const id = idParam(req);
-      if (!id || !finder.store.getLead(id)) return res.status(404).json({ error: "not found" });
+      if (!id || !finder.store.getLead(id))
+        return res.status(404).json({ error: "not found" });
       res.json(finder.store.updateLead(id, leadPatchSchema.parse(req.body)));
     }),
   );
@@ -204,7 +264,9 @@ export function createLeadFinderRouter(finder: LeadFinder): express.Router {
     "/:id",
     handle((req, res) => {
       const id = idParam(req);
-      res.status(id && finder.store.deleteLead(id) ? 200 : 404).json({ success: Boolean(id) });
+      res
+        .status(id && finder.store.deleteLead(id) ? 200 : 404)
+        .json({ success: Boolean(id) });
     }),
   );
 

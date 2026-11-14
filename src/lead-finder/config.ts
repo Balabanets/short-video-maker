@@ -17,10 +17,15 @@ export interface LeadFinderConfig {
   apiToken?: string;
 }
 
-export function loadLeadFinderConfig(env: NodeJS.ProcessEnv = process.env): LeadFinderConfig {
-  const dataDir = env.DATA_DIR_PATH || path.join(os.homedir(), ".ai-agents-az-video-generator");
+export function loadLeadFinderConfig(
+  env: NodeJS.ProcessEnv = process.env,
+): LeadFinderConfig {
+  const dataDir =
+    env.DATA_DIR_PATH ||
+    path.join(os.homedir(), ".ai-agents-az-video-generator");
   const llmEnabled =
-    env.LEAD_FINDER_LLM !== "false" && Boolean(env.ANTHROPIC_API_KEY || env.LEAD_FINDER_LLM === "true");
+    env.LEAD_FINDER_LLM !== "false" &&
+    Boolean(env.ANTHROPIC_API_KEY || env.LEAD_FINDER_LLM === "true");
   return {
     youtubeApiKey: env.YOUTUBE_API_KEY || undefined,
     dbPath: env.LEAD_FINDER_DB_PATH || path.join(dataDir, "leads.db"),
@@ -28,10 +33,12 @@ export function loadLeadFinderConfig(env: NodeJS.ProcessEnv = process.env): Lead
       ? {
           apiKey: env.ANTHROPIC_API_KEY || undefined,
           model: env.LEAD_FINDER_LLM_MODEL || "claude-opus-5-5",
-          prefilter: env.LEAD_FINDER_LLM_PREFILTER === "all" ? "all" : "signals",
+          prefilter:
+            env.LEAD_FINDER_LLM_PREFILTER === "all" ? "all" : "signals",
         }
       : null,
-    scanIntervalMinutes: Number(env.LEAD_FINDER_SCAN_INTERVAL_MINUTES ?? 0) || 0,
+    scanIntervalMinutes:
+      Number(env.LEAD_FINDER_SCAN_INTERVAL_MINUTES ?? 0) || 0,
     dailyQuotaBudget: Number(env.LEAD_FINDER_DAILY_QUOTA ?? 9000) || 9000,
     minRescanMinutes: Number(env.LEAD_FINDER_MIN_RESCAN_MINUTES ?? 60) || 0,
     apiToken: env.LEAD_FINDER_API_TOKEN || undefined,

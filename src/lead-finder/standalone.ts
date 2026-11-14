@@ -19,4 +19,6 @@ app.get("/health", (_req, res) => {
 });
 app.use("/api/leads", createLeadFinderRouter(finder));
 
-app.listen(port, () => logger.info({ port, api: "/api/leads" }, "lead finder server is running"));
+app.listen(port, () =>
+  logger.info({ port, api: "/api/leads" }, "lead finder server is running"),
+);

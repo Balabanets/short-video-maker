@@ -1,10 +1,27 @@
 import { logger } from "../logger";
-import { classifyByRules, findMentionedServers, normalize } from "./classifier/rules";
+import {
+  classifyByRules,
+  findMentionedServers,
+  normalize,
+} from "./classifier/rules";
 import { LlmClassifier } from "./classifier/llm";
 import type { LeadFinderConfig } from "./config";
 import { LeadStore } from "./LeadStore";
-import { QUOTA_COST, QuotaExceededError, YouTubeClient, YouTubeVideo, parseVideoId } from "./sources/youtube";
-import type { Campaign, CampaignConfig, Classification, ImportComment, RawComment, ScanReport } from "./types";
+import {
+  QUOTA_COST,
+  QuotaExceededError,
+  YouTubeClient,
+  YouTubeVideo,
+  parseVideoId,
+} from "./sources/youtube";
+import type {
+  Campaign,
+  CampaignConfig,
+  Classification,
+  ImportComment,
+  RawComment,
+  ScanReport,
+} from "./types";
 import { importCommentSchema } from "./types";
 
 type ClassifyContext = Pick<
@@ -20,7 +37,8 @@ const DEFAULT_IMPORT_CONTEXT: ClassifyContext = {
 };
 
 /** Day key in Pacific time — YouTube resets quota at midnight PT. */
-const quotaDay = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
+const quotaDay = () =>
+  new Date().toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
 
 export class LeadFinder {
   private youtube: YouTubeClient | null;
@@ -52,10 +70,14 @@ export class LeadFinder {
     this.rollQuotaDay();
     return {
       youtubeConfigured: Boolean(this.youtube),
-      llmClassifier: this.llm ? this.config.llm?.model ?? "custom" : null,
+      llmClassifier: this.llm ? (this.config.llm?.model ?? "custom") : null,
       scanning: Boolean(this.running),
       scheduleMinutes: this.config.scanIntervalMinutes,
-      quota: { day: this.quota.day, used: this.quota.used, budget: this.config.dailyQuotaBudget },
+      quota: {
+        day: this.quota.day,
+        used: this.quota.used,
+        budget: this.config.dailyQuotaBudget,
+      },
     };
   }
 
@@ -64,9 +86,14 @@ export class LeadFinder {
   startScheduler() {
     if (!this.config.scanIntervalMinutes || this.timer) return;
     const ms = this.config.scanIntervalMinutes * 60_000;
-    logger.info({ everyMinutes: this.config.scanIntervalMinutes }, "lead finder scheduler started");
+    logger.info(
+      { everyMinutes: this.config.scanIntervalMinutes },
+      "lead finder scheduler started",
+    );
     this.timer = setInterval(() => {
-      this.scanAll().catch((e) => logger.error(e, "scheduled lead scan failed"));
+      this.scanAll().catch((e) =>
+        logger.error(e, "scheduled lead scan failed"),
+      );
     }, ms);
     this.timer.unref();
   }
@@ -110,7 +137,10 @@ export class LeadFinder {
     }
   }
 
-  private async yt<T>(cost: number, fn: (yt: YouTubeClient) => Promise<T>): Promise<T> {
+  private async yt<T>(
+    cost: number,
+    fn: (yt: YouTubeClient) => Promise<T>,
+  ): Promise<T> {
     if (!this.youtube) throw new Error("YOUTUBE_API_KEY is not configured");
     this.ensureQuota(cost);
     const before = this.youtube.quotaUsed;
@@ -137,22 +167,31 @@ export class LeadFinder {
     logger.info({ campaign: campaign.name }, "lead scan started");
 
     try {
-      if (!this.youtube) throw new Error("YOUTUBE_API_KEY is not configured (import-only mode)");
+      if (!this.youtube)
+        throw new Error("YOUTUBE_API_KEY is not configured (import-only mode)");
       const videos = await this.collectVideos(campaign, report);
       for (const video of videos) {
         const state = this.store.getVideoScanState("youtube", video.videoId);
         if (
           state &&
           this.config.minRescanMinutes > 0 &&
-          Date.now() - Date.parse(state.lastScannedAt) < this.config.minRescanMinutes * 60_000
+          Date.now() - Date.parse(state.lastScannedAt) <
+            this.config.minRescanMinutes * 60_000
         ) {
           continue;
         }
         try {
           const comments = await this.yt(QUOTA_COST.list, (yt) =>
-            yt.fetchComments(video, { since: state?.newestCommentAt, limit: campaign.maxCommentsPerVideo }),
+            yt.fetchComments(video, {
+              since: state?.newestCommentAt,
+              limit: campaign.maxCommentsPerVideo,
+            }),
           );
-          const result = await this.processComments(comments, campaign, campaign.id);
+          const result = await this.processComments(
+            comments,
+            campaign,
+            campaign.id,
+          );
           const newest = comments.reduce<string | null>(
             (max, c) => (!max || c.publishedAt > max ? c.publishedAt : max),
             null,
@@ -177,20 +216,31 @@ export class LeadFinder {
       }
     } catch (e) {
       report.errors.push((e as Error).message);
-      logger.warn({ campaign: campaign.name, error: (e as Error).message }, "lead scan stopped early");
+      logger.warn(
+        { campaign: campaign.name, error: (e as Error).message },
+        "lead scan stopped early",
+      );
     }
 
     this.store.markCampaignRun(campaign.id);
     report.finishedAt = new Date().toISOString();
     report.quotaUnitsUsed = this.quota.used - quotaStart;
     this.store.saveScanRun(report);
-    logger.info({ campaign: campaign.name, ...report, errors: report.errors.length }, "lead scan finished");
+    logger.info(
+      { campaign: campaign.name, ...report, errors: report.errors.length },
+      "lead scan finished",
+    );
     return report;
   }
 
-  private async collectVideos(campaign: Campaign, report: ScanReport): Promise<YouTubeVideo[]> {
+  private async collectVideos(
+    campaign: Campaign,
+    report: ScanReport,
+  ): Promise<YouTubeVideo[]> {
     const byId = new Map<string, YouTubeVideo>();
-    const publishedAfter = new Date(Date.now() - campaign.publishedWithinDays * 86_400_000);
+    const publishedAfter = new Date(
+      Date.now() - campaign.publishedWithinDays * 86_400_000,
+    );
 
     for (const q of campaign.queries) {
       try {
@@ -226,7 +276,9 @@ export class LeadFinder {
     if (campaign.videoIds.length) {
       const ids = campaign.videoIds.map(parseVideoId);
       try {
-        const vids = await this.yt(Math.ceil(ids.length / 50), (yt) => yt.getVideos(ids));
+        const vids = await this.yt(Math.ceil(ids.length / 50), (yt) =>
+          yt.getVideos(ids),
+        );
         vids.forEach((v) => byId.set(v.videoId, v));
       } catch (e) {
         if (e instanceof QuotaExceededError) throw e;
@@ -248,7 +300,8 @@ export class LeadFinder {
     campaignId: number | null,
   ): Promise<{ classified: number; leadsFound: number; newLeads: number }> {
     const fresh = this.store.filterUnseen(comments);
-    if (fresh.length === 0) return { classified: 0, leadsFound: 0, newLeads: 0 };
+    if (fresh.length === 0)
+      return { classified: 0, leadsFound: 0, newLeads: 0 };
 
     const verdicts: Classification[] = fresh.map((c) =>
       classifyByRules(c.text, {
@@ -265,14 +318,23 @@ export class LeadFinder {
       if (candidates.length) {
         const llmVerdicts = await this.llm.classify(
           candidates.map((x) => x.c),
-          { game: ctx.game, competitorNames: ctx.competitorNames, ownServerName: ctx.ownServerName },
+          {
+            game: ctx.game,
+            competitorNames: ctx.competitorNames,
+            ownServerName: ctx.ownServerName,
+          },
         );
         llmVerdicts.forEach((v, k) => {
           const i = candidates[k].i;
           verdicts[i] = {
             ...v,
             matchedKeywords: verdicts[i].matchedKeywords,
-            mentionedServers: [...new Set([...v.mentionedServers, ...verdicts[i].mentionedServers])],
+            mentionedServers: [
+              ...new Set([
+                ...v.mentionedServers,
+                ...verdicts[i].mentionedServers,
+              ]),
+            ],
           };
         });
       }
@@ -292,14 +354,23 @@ export class LeadFinder {
   }
 
   /** Cheap gate in front of the LLM: rules found something, or the comment talks about servers at all. */
-  private worthLlm(c: RawComment, rules: Classification, ctx: ClassifyContext): boolean {
-    if (rules.reason === "looks like spam / self-promo" || rules.reason === "too short") return false;
+  private worthLlm(
+    c: RawComment,
+    rules: Classification,
+    ctx: ClassifyContext,
+  ): boolean {
+    if (
+      rules.reason === "looks like spam / self-promo" ||
+      rules.reason === "too short"
+    )
+      return false;
     if (this.config.llm?.prefilter === "all") return true;
     if (rules.score > 0) return true;
     const t = normalize(c.text);
     return (
-      /сервер|server|проект|админ|донат|вайп|онлайн|играть|играю|поиграть/.test(t) ||
-      findMentionedServers(c.text, ctx.competitorNames).length > 0
+      /сервер|server|проект|админ|донат|вайп|онлайн|играть|играю|поиграть/.test(
+        t,
+      ) || findMentionedServers(c.text, ctx.competitorNames).length > 0
     );
   }
 
@@ -319,6 +390,10 @@ export class LeadFinder {
         commentUrl: i.commentUrl ?? i.videoUrl,
       };
     });
-    return this.processComments(parsed, campaign ?? DEFAULT_IMPORT_CONTEXT, campaign?.id ?? null);
+    return this.processComments(
+      parsed,
+      campaign ?? DEFAULT_IMPORT_CONTEXT,
+      campaign?.id ?? null,
+    );
   }
 }

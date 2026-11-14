@@ -101,7 +101,10 @@ export class LlmClassifier {
           logger.error("LLM classifier: invalid ANTHROPIC_API_KEY");
           throw error;
         } else if (error instanceof Anthropic.APIError) {
-          logger.error({ status: error.status, message: error.message }, "LLM classifier API error");
+          logger.error(
+            { status: error.status, message: error.message },
+            "LLM classifier API error",
+          );
         } else {
           logger.error(error, "LLM classifier failed");
         }
@@ -119,8 +122,12 @@ export class LlmClassifier {
 
     const userText = [
       `Game: ${context.game}`,
-      context.ownServerName ? `Our server (authors already playing on it are "irrelevant" unless they are leaving): ${context.ownServerName}` : "",
-      context.competitorNames.length ? `Known competitor servers: ${context.competitorNames.join(", ")}` : "",
+      context.ownServerName
+        ? `Our server (authors already playing on it are "irrelevant" unless they are leaving): ${context.ownServerName}`
+        : "",
+      context.competitorNames.length
+        ? `Known competitor servers: ${context.competitorNames.join(", ")}`
+        : "",
       "",
       "<comments>",
       JSON.stringify(payload),
@@ -134,22 +141,36 @@ export class LlmClassifier {
       model: this.model,
       max_tokens: 16000,
       ...(useFallbacks
-        ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const }
+        ? {
+            betas: ["server-side-fallback-2026-07-01"],
+            fallbacks: "default" as const,
+          }
         : {}),
       output_config: {
         effort: "low",
         format: jsonSchemaOutputFormat(RESULT_SCHEMA),
       },
-      system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
+      system: [
+        {
+          type: "text",
+          text: SYSTEM_PROMPT,
+          cache_control: { type: "ephemeral" },
+        },
+      ],
       messages: [{ role: "user", content: userText }],
     });
 
     if (response.stop_reason === "refusal") {
-      logger.warn({ details: response.stop_details }, "LLM classifier refused a batch");
+      logger.warn(
+        { details: response.stop_details },
+        "LLM classifier refused a batch",
+      );
       return [];
     }
     if (response.stop_reason === "max_tokens") {
-      logger.warn("LLM classifier hit max_tokens; batch result may be incomplete");
+      logger.warn(
+        "LLM classifier hit max_tokens; batch result may be incomplete",
+      );
     }
     return response.parsed_output?.results ?? [];
   }

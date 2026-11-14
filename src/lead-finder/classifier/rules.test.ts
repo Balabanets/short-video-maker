@@ -28,8 +28,13 @@ describe("classifyByRules", () => {
 
   test("skips players already on our server unless they are leaving", () => {
     const opts = { ownServerName: "Nova RP" };
-    expect(classifyByRules("на Nova RP админы абузят, ужас", opts).category).toBe("irrelevant");
-    expect(classifyByRules("ушел с Nova RP, админы абузят, посоветуйте сервер", opts).category).not.toBe("irrelevant");
+    expect(
+      classifyByRules("на Nova RP админы абузят, ужас", opts).category,
+    ).toBe("irrelevant");
+    expect(
+      classifyByRules("ушел с Nova RP, админы абузят, посоветуйте сервер", opts)
+        .category,
+    ).not.toBe("irrelevant");
   });
 
   test("detects competitor mentions and boosts complaints naming them", () => {
@@ -40,12 +45,16 @@ describe("classifyByRules", () => {
   });
 
   test("extra keywords from the campaign count as signals", () => {
-    const res = classifyByRules("кто знает где есть ролевка с экономикой", { extraKeywords: ["ролевка с экономикой"] });
+    const res = classifyByRules("кто знает где есть ролевка с экономикой", {
+      extraKeywords: ["ролевка с экономикой"],
+    });
     expect(res.category).toBe("seeking");
   });
 
   test("competitor match is whole-word", () => {
     expect(findMentionedServers("играю на arizonarp", ["Arizona"])).toEqual([]);
-    expect(findMentionedServers("играю на Arizona!", ["Arizona"])).toEqual(["Arizona"]);
+    expect(findMentionedServers("играю на Arizona!", ["Arizona"])).toEqual([
+      "Arizona",
+    ]);
   });
 });

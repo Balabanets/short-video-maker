@@ -1,7 +1,10 @@
 import { createRequire } from "module";
 import path from "path";
 import fs from "fs-extra";
-import type { DatabaseSync as DatabaseSyncType, SQLInputValue } from "node:sqlite";
+import type {
+  DatabaseSync as DatabaseSyncType,
+  SQLInputValue,
+} from "node:sqlite";
 import type {
   Campaign,
   CampaignConfig,
@@ -17,7 +20,9 @@ import type {
 } from "./types";
 
 // Built-in since Node 22.5 — loaded via require so bundlers/test runners don't try to resolve it.
-const { DatabaseSync } = createRequire(__filename)("node:sqlite") as typeof import("node:sqlite");
+const { DatabaseSync } = createRequire(__filename)(
+  "node:sqlite",
+) as typeof import("node:sqlite");
 
 type Row = Record<string, unknown>;
 
@@ -155,7 +160,9 @@ export class LeadStore {
 
   createCampaign(config: CampaignConfig): Campaign {
     const res = this.db
-      .prepare("INSERT INTO campaigns (name, config, created_at) VALUES (?, ?, ?)")
+      .prepare(
+        "INSERT INTO campaigns (name, config, created_at) VALUES (?, ?, ?)",
+      )
       .run(config.name, JSON.stringify(config), now());
     return this.getCampaign(Number(res.lastInsertRowid))!;
   }
@@ -168,22 +175,28 @@ export class LeadStore {
   }
 
   deleteCampaign(id: number): boolean {
-    return this.db.prepare("DELETE FROM campaigns WHERE id = ?").run(id).changes > 0;
+    return (
+      this.db.prepare("DELETE FROM campaigns WHERE id = ?").run(id).changes > 0
+    );
   }
 
   getCampaign(id: number): Campaign | null {
-    const row = this.db.prepare("SELECT * FROM campaigns WHERE id = ?").get(id) as Row | undefined;
+    const row = this.db
+      .prepare("SELECT * FROM campaigns WHERE id = ?")
+      .get(id) as Row | undefined;
     return row ? this.toCampaign(row) : null;
   }
 
   listCampaigns(): Campaign[] {
-    return (this.db.prepare("SELECT * FROM campaigns ORDER BY id").all() as Row[]).map((r) =>
-      this.toCampaign(r),
-    );
+    return (
+      this.db.prepare("SELECT * FROM campaigns ORDER BY id").all() as Row[]
+    ).map((r) => this.toCampaign(r));
   }
 
   markCampaignRun(id: number) {
-    this.db.prepare("UPDATE campaigns SET last_run_at = ? WHERE id = ?").run(now(), id);
+    this.db
+      .prepare("UPDATE campaigns SET last_run_at = ? WHERE id = ?")
+      .run(now(), id);
   }
 
   private toCampaign(row: Row): Campaign {
@@ -199,7 +212,9 @@ export class LeadStore {
   // ---------------------------------------------------------------- scanning state
 
   filterUnseen(comments: RawComment[]): RawComment[] {
-    const stmt = this.db.prepare("SELECT 1 FROM seen_comments WHERE platform = ? AND comment_id = ?");
+    const stmt = this.db.prepare(
+      "SELECT 1 FROM seen_comments WHERE platform = ? AND comment_id = ?",
+    );
     return comments.filter((c) => !stmt.get(c.platform, c.commentId));
   }
 
@@ -210,12 +225,20 @@ export class LeadStore {
     this.tx(() => comments.forEach((c) => stmt.run(c.platform, c.commentId)));
   }
 
-  getVideoScanState(platform: Platform, videoId: string): { newestCommentAt: string | null; lastScannedAt: string } | null {
+  getVideoScanState(
+    platform: Platform,
+    videoId: string,
+  ): { newestCommentAt: string | null; lastScannedAt: string } | null {
     const row = this.db
-      .prepare("SELECT newest_comment_at, last_scanned_at FROM scanned_videos WHERE platform = ? AND video_id = ?")
+      .prepare(
+        "SELECT newest_comment_at, last_scanned_at FROM scanned_videos WHERE platform = ? AND video_id = ?",
+      )
       .get(platform, videoId) as Row | undefined;
     return row
-      ? { newestCommentAt: (row.newest_comment_at as string) ?? null, lastScannedAt: String(row.last_scanned_at) }
+      ? {
+          newestCommentAt: (row.newest_comment_at as string) ?? null,
+          lastScannedAt: String(row.last_scanned_at),
+        }
       : null;
   }
 
@@ -240,29 +263,48 @@ export class LeadStore {
            comments_read = comments_read + excluded.comments_read,
            leads_found = leads_found + excluded.leads_found`,
       )
-      .run(v.platform, v.videoId, v.title ?? null, v.channelTitle ?? null, now(), v.newestCommentAt, v.commentsRead, v.leadsFound);
+      .run(
+        v.platform,
+        v.videoId,
+        v.title ?? null,
+        v.channelTitle ?? null,
+        now(),
+        v.newestCommentAt,
+        v.commentsRead,
+        v.leadsFound,
+      );
   }
 
   saveScanRun(report: ScanReport) {
     this.db
-      .prepare("INSERT INTO scan_runs (campaign_id, started_at, report) VALUES (?, ?, ?)")
+      .prepare(
+        "INSERT INTO scan_runs (campaign_id, started_at, report) VALUES (?, ?, ?)",
+      )
       .run(report.campaignId, report.startedAt, JSON.stringify(report));
   }
 
   listScanRuns(limit = 20): ScanReport[] {
-    return (this.db.prepare("SELECT report FROM scan_runs ORDER BY id DESC LIMIT ?").all(limit) as Row[]).map(
-      (r) => json<ScanReport>(r.report, {} as ScanReport),
-    );
+    return (
+      this.db
+        .prepare("SELECT report FROM scan_runs ORDER BY id DESC LIMIT ?")
+        .all(limit) as Row[]
+    ).map((r) => json<ScanReport>(r.report, {} as ScanReport));
   }
 
   // ---------------------------------------------------------------- leads
 
   /** Upserts the author as a lead and attaches the comment. Returns whether the lead is new. */
-  saveLead(comment: RawComment, cls: Classification, campaignId: number | null): { leadId: number; isNew: boolean } {
+  saveLead(
+    comment: RawComment,
+    cls: Classification,
+    campaignId: number | null,
+  ): { leadId: number; isNew: boolean } {
     return this.tx(() => {
       const ts = now();
       const existing = this.db
-        .prepare("SELECT id, best_score FROM leads WHERE platform = ? AND author_id = ?")
+        .prepare(
+          "SELECT id, best_score FROM leads WHERE platform = ? AND author_id = ?",
+        )
         .get(comment.platform, comment.authorId) as Row | undefined;
 
       let leadId: number;
@@ -275,7 +317,12 @@ export class LeadStore {
                ${better ? ", best_score = ?, best_category = ?" : ""} WHERE id = ?`,
           )
           .run(
-            ...([comment.authorName, comment.authorUrl, ts, ts] as SQLInputValue[]),
+            ...([
+              comment.authorName,
+              comment.authorUrl,
+              ts,
+              ts,
+            ] as SQLInputValue[]),
             ...((better ? [cls.score, cls.category] : []) as SQLInputValue[]),
             leadId,
           );
@@ -285,7 +332,17 @@ export class LeadStore {
             `INSERT INTO leads (platform, author_id, author_name, author_url, best_score, best_category, first_seen_at, last_seen_at, updated_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
-          .run(comment.platform, comment.authorId, comment.authorName, comment.authorUrl, cls.score, cls.category, ts, ts, ts);
+          .run(
+            comment.platform,
+            comment.authorId,
+            comment.authorName,
+            comment.authorUrl,
+            cls.score,
+            cls.category,
+            ts,
+            ts,
+            ts,
+          );
         leadId = Number(res.lastInsertRowid);
       }
 
@@ -326,12 +383,15 @@ export class LeadStore {
   listLeads(q: LeadQuery = {}): { total: number; items: LeadWithComments[] } {
     const where: string[] = [];
     const params: SQLInputValue[] = [];
-    if (q.status) (where.push("l.status = ?"), params.push(q.status));
-    if (q.category) (where.push("l.best_category = ?"), params.push(q.category));
-    if (q.platform) (where.push("l.platform = ?"), params.push(q.platform));
-    if (q.minScore !== undefined) (where.push("l.best_score >= ?"), params.push(q.minScore));
+    if (q.status) where.push("l.status = ?"), params.push(q.status);
+    if (q.category) where.push("l.best_category = ?"), params.push(q.category);
+    if (q.platform) where.push("l.platform = ?"), params.push(q.platform);
+    if (q.minScore !== undefined)
+      where.push("l.best_score >= ?"), params.push(q.minScore);
     if (q.campaignId !== undefined) {
-      where.push("EXISTS (SELECT 1 FROM comments c WHERE c.lead_id = l.id AND c.campaign_id = ?)");
+      where.push(
+        "EXISTS (SELECT 1 FROM comments c WHERE c.lead_id = l.id AND c.campaign_id = ?)",
+      );
       params.push(q.campaignId);
     }
     if (q.search) {
@@ -342,12 +402,19 @@ export class LeadStore {
       params.push(like, like, like);
     }
     const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
-    const order = q.sort === "recent" ? "l.last_seen_at DESC" : "l.best_score DESC, l.last_seen_at DESC";
+    const order =
+      q.sort === "recent"
+        ? "l.last_seen_at DESC"
+        : "l.best_score DESC, l.last_seen_at DESC";
     const limit = Math.min(q.limit ?? 50, 500);
     const offset = q.offset ?? 0;
 
     const total = Number(
-      (this.db.prepare(`SELECT COUNT(*) AS n FROM leads l ${whereSql}`).get(...params) as Row).n,
+      (
+        this.db
+          .prepare(`SELECT COUNT(*) AS n FROM leads l ${whereSql}`)
+          .get(...params) as Row
+      ).n,
     );
     const rows = this.db
       .prepare(
@@ -356,7 +423,13 @@ export class LeadStore {
       )
       .all(...params, limit, offset) as Row[];
 
-    return { total, items: rows.map((r) => ({ ...this.toLead(r), comments: this.commentsFor(Number(r.id)) })) };
+    return {
+      total,
+      items: rows.map((r) => ({
+        ...this.toLead(r),
+        comments: this.commentsFor(Number(r.id)),
+      })),
+    };
   }
 
   getLead(id: number): LeadWithComments | null {
@@ -368,28 +441,41 @@ export class LeadStore {
     return row ? { ...this.toLead(row), comments: this.commentsFor(id) } : null;
   }
 
-  updateLead(id: number, patch: { status?: LeadStatus; notes?: string; tags?: string[] }): LeadWithComments | null {
+  updateLead(
+    id: number,
+    patch: { status?: LeadStatus; notes?: string; tags?: string[] },
+  ): LeadWithComments | null {
     const sets: string[] = [];
     const params: SQLInputValue[] = [];
-    if (patch.status) (sets.push("status = ?"), params.push(patch.status));
-    if (patch.notes !== undefined) (sets.push("notes = ?"), params.push(patch.notes));
-    if (patch.tags) (sets.push("tags = ?"), params.push(JSON.stringify(patch.tags)));
+    if (patch.status) sets.push("status = ?"), params.push(patch.status);
+    if (patch.notes !== undefined)
+      sets.push("notes = ?"), params.push(patch.notes);
+    if (patch.tags)
+      sets.push("tags = ?"), params.push(JSON.stringify(patch.tags));
     if (sets.length) {
       sets.push("updated_at = ?");
       params.push(now());
-      this.db.prepare(`UPDATE leads SET ${sets.join(", ")} WHERE id = ?`).run(...params, id);
+      this.db
+        .prepare(`UPDATE leads SET ${sets.join(", ")} WHERE id = ?`)
+        .run(...params, id);
     }
     return this.getLead(id);
   }
 
   /** Hard delete (e.g. a person asks to be removed). Comments go with it. */
   deleteLead(id: number): boolean {
-    return this.db.prepare("DELETE FROM leads WHERE id = ?").run(id).changes > 0;
+    return (
+      this.db.prepare("DELETE FROM leads WHERE id = ?").run(id).changes > 0
+    );
   }
 
   private commentsFor(leadId: number): StoredComment[] {
     return (
-      this.db.prepare("SELECT * FROM comments WHERE lead_id = ? ORDER BY score DESC, published_at DESC").all(leadId) as Row[]
+      this.db
+        .prepare(
+          "SELECT * FROM comments WHERE lead_id = ? ORDER BY score DESC, published_at DESC",
+        )
+        .all(leadId) as Row[]
     ).map((r) => ({
       id: Number(r.id),
       leadId: Number(r.lead_id),
@@ -440,14 +526,21 @@ export class LeadStore {
   // ---------------------------------------------------------------- insights
 
   stats() {
-    const all = <T>(sql: string, ...p: SQLInputValue[]) => this.db.prepare(sql).all(...p) as T[];
+    const all = <T>(sql: string, ...p: SQLInputValue[]) =>
+      this.db.prepare(sql).all(...p) as T[];
     return {
-      totalLeads: Number((this.db.prepare("SELECT COUNT(*) AS n FROM leads").get() as Row).n),
-      byStatus: all<{ status: string; n: number }>("SELECT status, COUNT(*) AS n FROM leads GROUP BY status"),
+      totalLeads: Number(
+        (this.db.prepare("SELECT COUNT(*) AS n FROM leads").get() as Row).n,
+      ),
+      byStatus: all<{ status: string; n: number }>(
+        "SELECT status, COUNT(*) AS n FROM leads GROUP BY status",
+      ),
       byCategory: all<{ category: string; n: number }>(
         "SELECT best_category AS category, COUNT(*) AS n FROM leads GROUP BY best_category",
       ),
-      byPlatform: all<{ platform: string; n: number }>("SELECT platform, COUNT(*) AS n FROM leads GROUP BY platform"),
+      byPlatform: all<{ platform: string; n: number }>(
+        "SELECT platform, COUNT(*) AS n FROM leads GROUP BY platform",
+      ),
       /** Which competitor servers unhappy players talk about — content & positioning input. */
       topMentionedServers: all<{ server: string; n: number }>(
         `SELECT j.value AS server, COUNT(*) AS n FROM comments, json_each(comments.mentioned_servers) j
@@ -459,7 +552,13 @@ export class LeadStore {
          GROUP BY j.value ORDER BY n DESC LIMIT 20`,
       ),
       /** Videos/channels whose audience produces the most leads — scan them more often. */
-      topVideos: all<{ videoId: string; videoUrl: string; title: string; channel: string; leads: number }>(
+      topVideos: all<{
+        videoId: string;
+        videoUrl: string;
+        title: string;
+        channel: string;
+        leads: number;
+      }>(
         `SELECT video_id AS videoId, video_url AS videoUrl, video_title AS title, video_channel_title AS channel,
                 COUNT(DISTINCT lead_id) AS leads
          FROM comments GROUP BY platform, video_id ORDER BY leads DESC LIMIT 20`,
@@ -468,8 +567,20 @@ export class LeadStore {
         `SELECT video_channel_title AS channel, COUNT(DISTINCT lead_id) AS leads FROM comments
          WHERE video_channel_title IS NOT NULL GROUP BY video_channel_title ORDER BY leads DESC LIMIT 20`,
       ),
-      videosScanned: Number((this.db.prepare("SELECT COUNT(*) AS n FROM scanned_videos").get() as Row).n),
-      commentsClassified: Number((this.db.prepare("SELECT COUNT(*) AS n FROM seen_comments").get() as Row).n),
+      videosScanned: Number(
+        (
+          this.db
+            .prepare("SELECT COUNT(*) AS n FROM scanned_videos")
+            .get() as Row
+        ).n,
+      ),
+      commentsClassified: Number(
+        (
+          this.db
+            .prepare("SELECT COUNT(*) AS n FROM seen_comments")
+            .get() as Row
+        ).n,
+      ),
     };
   }
 }

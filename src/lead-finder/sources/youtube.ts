@@ -72,28 +72,49 @@ export class YouTubeClient {
     private timeoutMs = 20000,
   ) {}
 
-  private async get<T>(path: string, params: Record<string, unknown>, cost: number): Promise<T> {
+  private async get<T>(
+    path: string,
+    params: Record<string, unknown>,
+    cost: number,
+  ): Promise<T> {
     const qs = new URLSearchParams({ key: this.apiKey });
     for (const [k, v] of Object.entries(params)) {
       if (v !== undefined && v !== null && v !== "") qs.set(k, String(v));
     }
     this.quotaUsed += cost; // Google charges for failed calls too.
-    const res = await fetch(`${this.baseURL}${path}?${qs}`, { signal: AbortSignal.timeout(this.timeoutMs) });
+    const res = await fetch(`${this.baseURL}${path}?${qs}`, {
+      signal: AbortSignal.timeout(this.timeoutMs),
+    });
     if (res.ok) return (await res.json()) as T;
 
-    const body = (await res.json().catch(() => ({}))) as { error?: { errors?: { reason?: string }[]; message?: string } };
+    const body = (await res.json().catch(() => ({}))) as {
+      error?: { errors?: { reason?: string }[]; message?: string };
+    };
     const reason = body.error?.errors?.[0]?.reason;
     if (reason === "quotaExceeded" || reason === "dailyLimitExceeded") {
       throw new QuotaExceededError("YouTube API daily quota exceeded");
     }
-    const e = new Error(`YouTube API ${path} failed: ${res.status} ${reason ?? body.error?.message ?? res.statusText}`);
+    const e = new Error(
+      `YouTube API ${path} failed: ${res.status} ${reason ?? body.error?.message ?? res.statusText}`,
+    );
     (e as Error & { reason?: string }).reason = reason;
     throw e;
   }
 
-  async searchVideos(query: string, opts: SearchOptions = {}): Promise<YouTubeVideo[]> {
+  async searchVideos(
+    query: string,
+    opts: SearchOptions = {},
+  ): Promise<YouTubeVideo[]> {
     const data = await this.get<{
-      items: { id: { videoId: string }; snippet: { title: string; channelTitle: string; channelId: string; publishedAt: string } }[];
+      items: {
+        id: { videoId: string };
+        snippet: {
+          title: string;
+          channelTitle: string;
+          channelId: string;
+          publishedAt: string;
+        };
+      }[];
     }>(
       "/search",
       {
@@ -118,19 +139,32 @@ export class YouTubeClient {
   }
 
   /** Latest uploads of a channel via its uploads playlist (2 quota units instead of 100). */
-  async channelUploads(channelId: string, maxResults = 15): Promise<YouTubeVideo[]> {
-    const ch = await this.get<{ items?: { contentDetails: { relatedPlaylists: { uploads: string } } }[] }>(
-      "/channels",
-      { part: "contentDetails", id: channelId },
-      QUOTA_COST.list,
-    );
+  async channelUploads(
+    channelId: string,
+    maxResults = 15,
+  ): Promise<YouTubeVideo[]> {
+    const ch = await this.get<{
+      items?: { contentDetails: { relatedPlaylists: { uploads: string } } }[];
+    }>("/channels", { part: "contentDetails", id: channelId }, QUOTA_COST.list);
     const uploads = ch.items?.[0]?.contentDetails.relatedPlaylists.uploads;
     if (!uploads) return [];
     const pl = await this.get<{
-      items: { snippet: { title: string; channelTitle: string; channelId: string; publishedAt: string; resourceId: { videoId: string } } }[];
+      items: {
+        snippet: {
+          title: string;
+          channelTitle: string;
+          channelId: string;
+          publishedAt: string;
+          resourceId: { videoId: string };
+        };
+      }[];
     }>(
       "/playlistItems",
-      { part: "snippet", playlistId: uploads, maxResults: Math.min(50, maxResults) },
+      {
+        part: "snippet",
+        playlistId: uploads,
+        maxResults: Math.min(50, maxResults),
+      },
       QUOTA_COST.list,
     );
     return (pl.items ?? []).map((i) => ({
@@ -147,8 +181,21 @@ export class YouTubeClient {
     for (let i = 0; i < videoIds.length; i += 50) {
       const ids = videoIds.slice(i, i + 50);
       const data = await this.get<{
-        items: { id: string; snippet: { title: string; channelTitle: string; channelId: string; publishedAt: string }; statistics?: { commentCount?: string } }[];
-      }>("/videos", { part: "snippet,statistics", id: ids.join(",") }, QUOTA_COST.list);
+        items: {
+          id: string;
+          snippet: {
+            title: string;
+            channelTitle: string;
+            channelId: string;
+            publishedAt: string;
+          };
+          statistics?: { commentCount?: string };
+        }[];
+      }>(
+        "/videos",
+        { part: "snippet,statistics", id: ids.join(",") },
+        QUOTA_COST.list,
+      );
       for (const v of data.items ?? []) {
         out.push({
           videoId: v.id,
@@ -156,7 +203,9 @@ export class YouTubeClient {
           channelTitle: v.snippet.channelTitle,
           channelId: v.snippet.channelId,
           publishedAt: v.snippet.publishedAt,
-          commentCount: v.statistics?.commentCount ? Number(v.statistics.commentCount) : undefined,
+          commentCount: v.statistics?.commentCount
+            ? Number(v.statistics.commentCount)
+            : undefined,
         });
       }
     }
@@ -193,7 +242,11 @@ export class YouTubeClient {
         );
       } catch (error: unknown) {
         const reason = (error as { reason?: string }).reason;
-        if (reason === "commentsDisabled" || reason === "videoNotFound" || reason === "forbidden") {
+        if (
+          reason === "commentsDisabled" ||
+          reason === "videoNotFound" ||
+          reason === "forbidden"
+        ) {
           return out;
         }
         throw error;
@@ -222,7 +275,10 @@ export class YouTubeClient {
     return out.slice(0, limit);
   }
 
-  private toRaw(c: CommentResource, video: Pick<YouTubeVideo, "videoId" | "title" | "channelTitle">): RawComment {
+  private toRaw(
+    c: CommentResource,
+    video: Pick<YouTubeVideo, "videoId" | "title" | "channelTitle">,
+  ): RawComment {
     const s = c.snippet;
     const authorId = s.authorChannelId?.value ?? s.authorDisplayName;
     const videoUrl = `https://www.youtube.com/watch?v=${video.videoId}`;

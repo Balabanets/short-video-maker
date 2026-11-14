@@ -2,7 +2,14 @@ import http from "http";
 import type { AddressInfo } from "net";
 import express from "express";
 import nock from "nock";
-import { afterAll, afterEach, beforeEach, describe, expect, test } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "vitest";
 import type { LeadFinderConfig } from "./config";
 import { LeadFinder } from "./LeadFinder";
 import { LeadStore } from "./LeadStore";
@@ -23,7 +30,13 @@ const config: LeadFinderConfig = {
   minRescanMinutes: 0,
 };
 
-const thread = (id: string, author: string, text: string, publishedAt: string, replies: { id: string; author: string; text: string }[] = []) => ({
+const thread = (
+  id: string,
+  author: string,
+  text: string,
+  publishedAt: string,
+  replies: { id: string; author: string; text: string }[] = [],
+) => ({
   id,
   snippet: {
     topLevelComment: {
@@ -65,7 +78,12 @@ function mockYouTube(threads: unknown[]) {
       items: [
         {
           id: { videoId: "vid00000001" },
-          snippet: { title: "Обзор серверов", channelTitle: "GameChan", channelId: "UC1", publishedAt: "2026-11-01T00:00:00Z" },
+          snippet: {
+            title: "Обзор серверов",
+            channelTitle: "GameChan",
+            channelId: "UC1",
+            publishedAt: "2026-11-01T00:00:00Z",
+          },
         },
       ],
     });
@@ -79,7 +97,10 @@ describe("LeadFinder", () => {
   beforeEach(() => {
     nock.disableNetConnect();
     store = new LeadStore(":memory:");
-    finder = new LeadFinder(config, store, { youtube: new YouTubeClient("test", API), llm: null });
+    finder = new LeadFinder(config, store, {
+      youtube: new YouTubeClient("test", API),
+      llm: null,
+    });
   });
   afterEach(() => {
     nock.cleanAll();
@@ -89,15 +110,24 @@ describe("LeadFinder", () => {
 
   const campaign = () =>
     store.createCampaign(
-      campaignSchema.parse({ name: "GTA RP", game: "GTA 5 RP", queries: ["сервера гта 5 рп"], competitorNames: ["Arizona"] }),
+      campaignSchema.parse({
+        name: "GTA RP",
+        game: "GTA 5 RP",
+        queries: ["сервера гта 5 рп"],
+        competitorNames: ["Arizona"],
+      }),
     );
 
   test("scans a campaign and stores only leads, with profile and comment links", async () => {
     const c = campaign();
     mockYouTube([
-      thread("c1", "petya", "Посоветуйте сервер, на Arizona админы абузят", "2026-11-10T10:00:00Z", [
-        { id: "c1.r1", author: "vasya", text: "тоже ищу сервер нормальный" },
-      ]),
+      thread(
+        "c1",
+        "petya",
+        "Посоветуйте сервер, на Arizona админы абузят",
+        "2026-11-10T10:00:00Z",
+        [{ id: "c1.r1", author: "vasya", text: "тоже ищу сервер нормальный" }],
+      ),
       thread("c2", "masha", "Классное видео!", "2026-11-10T09:00:00Z"),
     ]);
 
@@ -112,18 +142,27 @@ describe("LeadFinder", () => {
     expect(total).toBe(2);
     const petya = items.find((l) => l.authorName === "petya")!;
     expect(petya.authorUrl).toBe("https://www.youtube.com/@petya");
-    expect(petya.comments[0].commentUrl).toBe("https://www.youtube.com/watch?v=vid00000001&lc=c1");
+    expect(petya.comments[0].commentUrl).toBe(
+      "https://www.youtube.com/watch?v=vid00000001&lc=c1",
+    );
     expect(petya.comments[0].mentionedServers).toEqual(["Arizona"]);
     expect(petya.comments[0].videoTitle).toBe("Обзор серверов");
   });
 
   test("re-scan only reads newer comments and never duplicates leads", async () => {
     const c = campaign();
-    mockYouTube([thread("c1", "petya", "ищу сервер, посоветуйте", "2026-11-10T10:00:00Z")]);
+    mockYouTube([
+      thread("c1", "petya", "ищу сервер, посоветуйте", "2026-11-10T10:00:00Z"),
+    ]);
     await finder.scanAll([c.id]);
 
     mockYouTube([
-      thread("c3", "petya", "ну что, никто не посоветует сервер?", "2026-11-11T10:00:00Z"),
+      thread(
+        "c3",
+        "petya",
+        "ну что, никто не посоветует сервер?",
+        "2026-11-11T10:00:00Z",
+      ),
       thread("c1", "petya", "ищу сервер, посоветуйте", "2026-11-10T10:00:00Z"),
     ]);
     const [report] = await finder.scanAll([c.id]);
@@ -136,7 +175,10 @@ describe("LeadFinder", () => {
   });
 
   test("stops at the daily quota budget", async () => {
-    const tight = new LeadFinder({ ...config, dailyQuotaBudget: 50 }, store, { youtube: new YouTubeClient("test", API), llm: null });
+    const tight = new LeadFinder({ ...config, dailyQuotaBudget: 50 }, store, {
+      youtube: new YouTubeClient("test", API),
+      llm: null,
+    });
     const c = campaign();
     const [report] = await tight.scanAll([c.id]);
     expect(report.errors.join()).toMatch(/quota/);
@@ -149,15 +191,47 @@ describe("LeadFinder", () => {
       classify: async (comments: RawComment[]) => {
         calls.push(comments);
         return new Map<number, Classification>(
-          comments.map((_, i) => [i, { category: "dissatisfied", score: 77, matchedKeywords: [], mentionedServers: ["Radmir"], reason: "жалуется", classifier: "llm" }]),
+          comments.map((_, i) => [
+            i,
+            {
+              category: "dissatisfied",
+              score: 77,
+              matchedKeywords: [],
+              mentionedServers: ["Radmir"],
+              reason: "жалуется",
+              classifier: "llm",
+            },
+          ]),
         );
       },
     } as unknown as LlmClassifier;
-    const withLlm = new LeadFinder({ ...config, llm: { model: "x", prefilter: "signals" } }, store, { youtube: null, llm });
+    const withLlm = new LeadFinder(
+      { ...config, llm: { model: "x", prefilter: "signals" } },
+      store,
+      { youtube: null, llm },
+    );
 
     const res = await withLlm.importComments([
-      { platform: "tiktok", commentId: "t1", videoId: "v1", videoUrl: "https://www.tiktok.com/@a/video/1", authorId: "u1", authorName: "u1", authorUrl: "https://www.tiktok.com/@u1", text: "на радмире онлайн совсем упал" },
-      { platform: "tiktok", commentId: "t2", videoId: "v1", videoUrl: "https://www.tiktok.com/@a/video/1", authorId: "u2", authorName: "u2", authorUrl: "https://www.tiktok.com/@u2", text: "смешной кот" },
+      {
+        platform: "tiktok",
+        commentId: "t1",
+        videoId: "v1",
+        videoUrl: "https://www.tiktok.com/@a/video/1",
+        authorId: "u1",
+        authorName: "u1",
+        authorUrl: "https://www.tiktok.com/@u1",
+        text: "на радмире онлайн совсем упал",
+      },
+      {
+        platform: "tiktok",
+        commentId: "t2",
+        videoId: "v1",
+        videoUrl: "https://www.tiktok.com/@a/video/1",
+        authorId: "u2",
+        authorName: "u2",
+        authorUrl: "https://www.tiktok.com/@u2",
+        text: "смешной кот",
+      },
     ]);
     expect(calls[0]).toHaveLength(1); // "смешной кот" never reaches the LLM
     expect(res.newLeads).toBe(1);
@@ -167,7 +241,16 @@ describe("LeadFinder", () => {
 
     // Same comments again: nothing re-classified.
     const again = await withLlm.importComments([
-      { platform: "tiktok", commentId: "t1", videoId: "v1", videoUrl: "https://www.tiktok.com/@a/video/1", authorId: "u1", authorName: "u1", authorUrl: "https://www.tiktok.com/@u1", text: "на радмире онлайн совсем упал" },
+      {
+        platform: "tiktok",
+        commentId: "t1",
+        videoId: "v1",
+        videoUrl: "https://www.tiktok.com/@a/video/1",
+        authorId: "u1",
+        authorName: "u1",
+        authorUrl: "https://www.tiktok.com/@u1",
+        text: "на радмире онлайн совсем упал",
+      },
     ]);
     expect(again.classified).toBe(0);
     expect(calls).toHaveLength(1);
@@ -181,7 +264,11 @@ describe("lead finder REST API", () => {
 
   beforeEach(async () => {
     store = new LeadStore(":memory:");
-    const finder = new LeadFinder({ ...config, youtubeApiKey: undefined, apiToken: "secret" }, store, { youtube: null, llm: null });
+    const finder = new LeadFinder(
+      { ...config, youtubeApiKey: undefined, apiToken: "secret" },
+      store,
+      { youtube: null, llm: null },
+    );
     const app = express();
     app.use("/api/leads", createLeadFinderRouter(finder));
     server = app.listen(0);
@@ -196,7 +283,11 @@ describe("lead finder REST API", () => {
   const call = (path: string, init: RequestInit = {}) =>
     fetch(base + path, {
       ...init,
-      headers: { "content-type": "application/json", authorization: "Bearer secret", ...(init.headers ?? {}) },
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer secret",
+        ...(init.headers ?? {}),
+      },
     });
 
   test("requires the token", async () => {
@@ -205,18 +296,36 @@ describe("lead finder REST API", () => {
   });
 
   test("campaign CRUD, import, list, patch, stats, csv, delete", async () => {
-    const created = await call("/campaigns", { method: "POST", body: JSON.stringify({ name: "MC", game: "Minecraft", queries: ["лучший сервер майнкрафт"] }) });
+    const created = await call("/campaigns", {
+      method: "POST",
+      body: JSON.stringify({
+        name: "MC",
+        game: "Minecraft",
+        queries: ["лучший сервер майнкрафт"],
+      }),
+    });
     expect(created.status).toBe(201);
     expect((await created.json()).minScore).toBe(40);
 
-    const bad = await call("/campaigns", { method: "POST", body: JSON.stringify({ name: "" }) });
+    const bad = await call("/campaigns", {
+      method: "POST",
+      body: JSON.stringify({ name: "" }),
+    });
     expect(bad.status).toBe(400);
 
     const imp = await call("/import", {
       method: "POST",
       body: JSON.stringify({
         comments: [
-          { commentId: "t1", videoId: "v1", videoUrl: "https://www.tiktok.com/@a/video/1", authorId: "u1", authorName: "=HYPERLINK()", authorUrl: "https://www.tiktok.com/@u1", text: "посоветуйте сервер майнкрафт с друзьями" },
+          {
+            commentId: "t1",
+            videoId: "v1",
+            videoUrl: "https://www.tiktok.com/@a/video/1",
+            authorId: "u1",
+            authorName: "=HYPERLINK()",
+            authorUrl: "https://www.tiktok.com/@u1",
+            text: "посоветуйте сервер майнкрафт с друзьями",
+          },
         ],
       }),
     });
@@ -226,7 +335,12 @@ describe("lead finder REST API", () => {
     expect(list.total).toBe(1);
     const id = list.items[0].id;
 
-    const patched = await (await call(`/${id}`, { method: "PATCH", body: JSON.stringify({ status: "contacted", notes: "написал в ЛС" }) })).json();
+    const patched = await (
+      await call(`/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "contacted", notes: "написал в ЛС" }),
+      })
+    ).json();
     expect(patched.status).toBe("contacted");
 
     const stats = await (await call("/stats")).json();
