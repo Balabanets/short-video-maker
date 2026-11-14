@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import axios from 'axios';
+import { errorText, leadsApi } from '../leadsApi';
 import {
   Alert,
   Box,
@@ -23,6 +23,9 @@ import {
 import RefreshIcon from '@mui/icons-material/Refresh';
 import DownloadIcon from '@mui/icons-material/Download';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import CheckIcon from '@mui/icons-material/Check';
+import CloseIcon from '@mui/icons-material/Close';
+import { IconButton, Tooltip } from '@mui/material';
 
 const STATUSES = ['new', 'in_progress', 'contacted', 'subscribed', 'converted', 'rejected'] as const;
 const STATUS_LABELS: Record<string, string> = {
@@ -72,6 +75,13 @@ interface Status {
   quota: { used: number; budget: number };
 }
 
+const ago = (iso: string) => {
+  const h = Math.round((Date.now() - Date.parse(iso)) / 3_600_000);
+  if (h < 1) return 'только что';
+  if (h < 24) return `${h} ч назад`;
+  return `${Math.round(h / 24)} дн. назад`;
+};
+
 const Leads: React.FC = () => {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [total, setTotal] = useState(0);
@@ -95,15 +105,15 @@ const Leads: React.FC = () => {
       p.set('limit', String(rowsPerPage));
       p.set('offset', String(page * rowsPerPage));
       const [list, st] = await Promise.all([
-        axios.get(`/api/leads?${p}`),
-        axios.get('/api/leads/status'),
+        leadsApi.get(`/?${p}`),
+        leadsApi.get('/status'),
       ]);
       setLeads(list.data.items);
       setTotal(list.data.total);
       setStatus(st.data);
       setError(null);
     } catch (e) {
-      setError('Не удалось загрузить лиды. Проверьте, что сервер запущен и /api/leads доступен.');
+      setError(`Не удалось загрузить лиды: ${errorText(e)}`);
     } finally {
       setLoading(false);
     }
@@ -114,13 +124,54 @@ const Leads: React.FC = () => {
   }, [load]);
 
   const update = async (id: number, patch: Partial<Pick<Lead, 'status' | 'notes'>>) => {
-    const { data } = await axios.patch(`/api/leads/${id}`, patch);
-    setLeads((ls) => ls.map((l) => (l.id === id ? data : l)));
+    try {
+      const { data } = await leadsApi.patch(`/${id}`, patch);
+      // Work-queue flow: a lead that no longer matches the status filter leaves the list.
+      if (filters.status && data.status !== filters.status) {
+        setLeads((ls) => ls.filter((l) => l.id !== id));
+        setTotal((t) => t - 1);
+      } else {
+        setLeads((ls) => ls.map((l) => (l.id === id ? data : l)));
+      }
+    } catch (e) {
+      setError(errorText(e));
+    }
   };
+
+  const downloadCsv = async () => {
+    try {
+      const res = await leadsApi.get(`/export.csv?${query()}`, { responseType: 'blob' });
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `leads-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(errorText(e));
+    }
+  };
+
+  // While a background scan runs, poll and refresh the list when it is done.
+  useEffect(() => {
+    if (!status?.scanning) return;
+    const t = setInterval(async () => {
+      try {
+        const { data } = await leadsApi.get('/status');
+        if (!data.scanning) {
+          clearInterval(t);
+          load();
+        }
+      } catch {
+        clearInterval(t);
+      }
+    }, 5000);
+    return () => clearInterval(t);
+  }, [status?.scanning, load]);
 
   const scan = async () => {
     try {
-      await axios.post('/api/leads/scan');
+      await leadsApi.post('/scan');
       setStatus((s) => (s ? { ...s, scanning: true } : s));
     } catch (e) {
       setError('Скан уже идёт или не настроены YOUTUBE_API_KEY / DISCORD_BOT_TOKEN');
@@ -137,7 +188,7 @@ const Leads: React.FC = () => {
       <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
         <Typography variant="h4">Лиды (холодные игроки)</Typography>
         <Stack direction="row" spacing={1}>
-          <Button variant="outlined" startIcon={<DownloadIcon />} href={`/api/leads/export.csv?${query()}`}>
+          <Button variant="outlined" startIcon={<DownloadIcon />} onClick={downloadCsv}>
             CSV
           </Button>
           <Button
@@ -225,12 +276,24 @@ const Leads: React.FC = () => {
                         <Link href={c?.commentUrl ?? c?.videoUrl} target="_blank" rel="noopener noreferrer">
                           открыть комментарий <OpenInNewIcon sx={{ fontSize: 12 }} />
                         </Link>{' '}
-                        · {c?.videoTitle ?? 'видео'}
+                        · {c?.videoTitle ?? 'видео'} · {c ? ago(c.publishedAt) : ''}
                         {lead.commentCount > 1 ? ` · ещё ${lead.commentCount - 1} коммент.` : ''}
                       </Typography>
                     </TableCell>
                     <TableCell>{lead.bestScore}</TableCell>
                     <TableCell>
+                      <Stack direction="row" spacing={0.5} sx={{ mb: 0.5 }}>
+                        <Tooltip title="Написал ему">
+                          <IconButton size="small" color="success" onClick={() => update(lead.id, { status: 'contacted' })}>
+                            <CheckIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Не лид">
+                          <IconButton size="small" color="error" onClick={() => update(lead.id, { status: 'rejected' })}>
+                            <CloseIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </Stack>
                       <TextField
                         select
                         size="small"

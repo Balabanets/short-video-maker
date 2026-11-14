@@ -22,10 +22,12 @@ app.get("/health", (_req, res) => {
 app.use("/api/leads", createLeadFinderRouter(finder));
 
 // Serve the web panel (Leads + Campaigns pages) if it was built (`npm run ui:build`).
-const uiDir = [
-  path.resolve(__dirname, "../ui"), // dist/lead-finder → dist/ui
-  path.resolve(__dirname, "../../dist/ui"), // src/lead-finder via ts-node
-].find((dir) => fs.existsSync(path.join(dir, "index.html")));
+// Built UI lives in dist/ui; from src/ (ts-node) "../ui" would be the unbuilt sources.
+const builtUi = path.resolve(
+  __dirname,
+  __filename.endsWith(".ts") ? "../../dist/ui" : "../ui",
+);
+const uiDir = fs.existsSync(path.join(builtUi, "index.html")) ? builtUi : null;
 if (uiDir) {
   app.use(express.static(uiDir));
   app.get("*", (_req, res) => res.sendFile(path.join(uiDir, "index.html")));

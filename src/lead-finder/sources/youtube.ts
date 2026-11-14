@@ -63,6 +63,19 @@ export function parseVideoId(input: string): string {
   return m ? m[1] : trimmed;
 }
 
+/** "UC…", "@handle", "youtube.com/@handle", "youtube.com/channel/UC…" → id or handle. */
+export function parseChannelRef(input: string): {
+  id?: string;
+  handle?: string;
+} {
+  const t = input.trim();
+  const id = t.match(/(?:^|\/channel\/)(UC[\w-]{22})(?:$|[/?])/);
+  if (id) return { id: id[1] };
+  const handle = t.match(/(?:^|youtube\.com\/)(@[\w.\-]+)/);
+  if (handle) return { handle: handle[1] };
+  return { handle: t.startsWith("@") ? t : `@${t}` };
+}
+
 export class YouTubeClient {
   public quotaUsed = 0;
 
@@ -139,15 +152,27 @@ export class YouTubeClient {
   }
 
   /** Latest uploads of a channel via its uploads playlist (2 quota units instead of 100). */
+  /**
+   * Latest uploads of a channel. Accepts a channel ID (UC…), an @handle or a channel URL —
+   * the handle is resolved by the same channels.list call, so it costs nothing extra.
+   */
   async channelUploads(
-    channelId: string,
+    channel: string,
     maxResults = 15,
   ): Promise<YouTubeVideo[]> {
+    const ref = parseChannelRef(channel);
     const ch = await this.get<{
       items?: { contentDetails: { relatedPlaylists: { uploads: string } } }[];
-    }>("/channels", { part: "contentDetails", id: channelId }, QUOTA_COST.list);
+    }>(
+      "/channels",
+      {
+        part: "contentDetails",
+        ...(ref.id ? { id: ref.id } : { forHandle: ref.handle }),
+      },
+      QUOTA_COST.list,
+    );
     const uploads = ch.items?.[0]?.contentDetails.relatedPlaylists.uploads;
-    if (!uploads) return [];
+    if (!uploads) throw new Error(`channel not found: ${channel}`);
     const pl = await this.get<{
       items: {
         snippet: {

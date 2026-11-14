@@ -5,6 +5,7 @@ import {
   passesLlmPrefilter,
 } from "./rules";
 import { EVAL_CORPUS, HOLDOUT_CORPUS } from "./eval-corpus";
+import { parseChannelRef } from "../sources/youtube";
 
 describe("classifyByRules", () => {
   test.each([
@@ -90,4 +91,22 @@ describe("eval corpora", () => {
       expect(found / leads).toBeGreaterThanOrEqual(0.9);
     });
   }
+});
+
+test("channel refs: id, handle, urls", () => {
+  expect(parseChannelRef("UC1234567890123456789012")).toEqual({
+    id: "UC1234567890123456789012",
+  });
+  expect(
+    parseChannelRef(
+      "https://www.youtube.com/channel/UC1234567890123456789012/videos",
+    ),
+  ).toEqual({
+    id: "UC1234567890123456789012",
+  });
+  expect(parseChannelRef("https://www.youtube.com/@GtaRpNews/videos")).toEqual({
+    handle: "@GtaRpNews",
+  });
+  expect(parseChannelRef("@gta.rp-news")).toEqual({ handle: "@gta.rp-news" });
+  expect(parseChannelRef("GtaRpNews")).toEqual({ handle: "@GtaRpNews" });
 });

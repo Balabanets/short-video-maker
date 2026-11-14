@@ -35,7 +35,7 @@ export const campaignSchema = z.object({
   game: z.string().min(1),
   /** YouTube search queries ("обзор серверов гта 5 рп", "лучший сервер майнкрафт"). */
   queries: z.array(z.string().min(1)).default([]),
-  /** Competitor / niche channels whose fresh uploads are scanned. Channel IDs (UC…). */
+  /** Competitor / niche channels whose fresh uploads are scanned: UC… IDs, @handles or channel URLs. */
   channelIds: z.array(z.string().min(1)).default([]),
   /** Explicit videos to scan (IDs or URLs). */
   videoIds: z.array(z.string().min(1)).default([]),
