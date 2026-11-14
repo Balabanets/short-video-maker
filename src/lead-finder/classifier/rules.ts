@@ -21,144 +21,213 @@ const r = (
   pattern: string,
 ): Rule => ({ category, weight, label, pattern: new RegExp(pattern, "i") });
 
+/** "server" in its many spellings. */
+const SRV = "(сервер\\S*|сервак\\S*|серв\\b|проект\\S*|server\\S*)";
+/** Leaving verbs. */
+const LEAVE =
+  "(ушел|ушла|ушли|ухожу|уйду|ливнул\\S*|ливаю|ливнем|бросил\\S*|бросаю|свалил\\S*|сваливаю|завязал)";
+
+/**
+ * Tuned against eval-corpus.ts (YouTube comments + Discord chat). Single weak words
+ * ("лагает", "вайп", "хочу зайти") are deliberately below the default threshold of 40:
+ * in Discord chatter they are everyday talk, not leads. Two signals together, or one
+ * strong one, are needed.
+ */
 export const RULES: Rule[] = [
   // ---- seeking: actively looking for a server (strongest signal)
   r(
     "seeking",
     60,
     "ищу сервер",
-    "ищу (норм\\S* |хорош\\S* |нов\\S* |годн\\S* )?сервер",
+    `(ищу|ищем|искал\\S*|в поисках).{0,25}(${SRV}|где (по)?играть|куда|другой|другие|новый|новое место)`,
   ),
   r(
     "seeking",
     60,
     "посоветуйте сервер",
-    "(посовету\\S*|подскаж\\S*|порекоменду\\S*).{0,25}сервер",
+    `(посовету\\S*|подскаж\\S*|порекоменду\\S*|дайте ссылку|с?кин\\S* ссылку|кто знает).{0,30}${SRV}|${SRV}.{0,15}(посовету\\S*|порекоменду\\S*)`,
   ),
   r(
     "seeking",
     55,
     "какой сервер выбрать",
-    "(какой|на каком|какой лучше).{0,20}сервер",
+    `(как\\S*|на каком|в какой)\\s${SRV}.{0,25}(лучше|выбрать|самый|живой|живее|норм|посовету\\S*|стоит|актуал\\S*|сейчас|без доната|для новичк)`,
   ),
   r(
     "seeking",
     50,
-    "куда перейти",
-    "(куда|на какой).{0,15}(перейти|уйти|свалить|переехать)",
-  ),
-  r("seeking", 45, "во что поиграть", "во что (бы )?поиграть"),
-  r(
-    "seeking",
-    40,
-    "есть норм сервера",
-    "есть (ли )?(норм|нормальн|хорош|живые)\\S* сервер",
+    "хочу туда же",
+    `(как\\S*|на каком)\\s${SRV}.{0,30}(хочу туда|тоже хочу|где найти)`,
   ),
   r(
     "seeking",
     55,
-    "looking for a server",
-    "(looking for|recommend|suggest).{0,20}server",
+    "куда перейти",
+    "куда(-нибудь|-то)? (бы )?(перейти|перейдем|уйти|уйдем|свалить|переехать|переедем|переезжать|податься|пойти играть)",
   ),
-  r("seeking", 45, "which server", "(which|what|best) server"),
+  r(
+    "seeking",
+    55,
+    "сменить сервер",
+    `(сменить|поменять|меняю|сменю)\\s.{0,10}${SRV}`,
+  ),
+  r(
+    "seeking",
+    45,
+    "другие сервера",
+    `(других|другие|другом|другой)\\s${SRV}.{0,30}\\?`,
+  ),
+  r(
+    "seeking",
+    50,
+    "есть норм сервера",
+    `есть (ли )?(норм|нормальн|хорош|живые|живой|годн|адекватн)\\S*\\s${SRV}`,
+  ),
+  r(
+    "seeking",
+    50,
+    "где играть?",
+    "где (сейчас |теперь )?(нормально |норм |лучше )?(по)?играть.{0,40}\\?",
+  ),
+  r("seeking", 45, "во что поиграть", "во что (бы )?поиграть"),
+  r(
+    "seeking",
+    55,
+    "looking for a server",
+    "(looking for|recommend|suggest|any good).{0,25}server",
+  ),
+  r("seeking", 45, "which server", "(which|what|best) server.{0,30}\\?"),
 
-  // ---- dissatisfied: complains about the server they play on now
+  // ---- dissatisfied: strong (one is enough)
   r(
     "dissatisfied",
     45,
     "ушел с сервера",
-    "(ушел|ухожу|уйду|ливнул|ливаю|бросил|бросаю).{0,25}(сервер|проект|оттуда)",
+    `${LEAVE}.{0,25}(${SRV}|оттуда|играть на)|${LEAVE} с [a-zа-я]{3,}`,
   ),
   r(
     "dissatisfied",
-    40,
+    45,
     "сервер умер",
-    "сервер (умер|мертв|сдох|помер|загнулся|пустой)",
-  ),
-  r(
-    "dissatisfied",
-    35,
-    "мертвый онлайн",
-    "(онлайн|онлаин|народу).{0,15}(мертв|ноль|нет|упал|никак)",
-  ),
-  r(
-    "dissatisfied",
-    35,
-    "админы",
-    "админ\\S*.{0,30}(абуз|беспредел|неадекват|банят|оборзел|ужас|клоун|дураки|не отвечают)",
-  ),
-  r(
-    "dissatisfied",
-    30,
-    "бан ни за что",
-    "(забанили|бан|банят).{0,25}(ни за что|просто так|без причины)",
+    `${SRV}.{0,10}(умер|мертв\\S*|сдох|помер|загнулся|пустой|всё|все,|скатился|отстой|помойка|дно)`,
   ),
   r(
     "dissatisfied",
     40,
-    "донат",
-    "(донат|donate|пей ту вин|pay to win|p2w).{0,30}(помойк|грабеж|дорог|решает|ужас|бред|развод|выкачивают)",
-  ),
-  r(
-    "dissatisfied",
-    30,
-    "вайп",
-    "(вайп|wipe).{0,25}(опять|снова|каждый|достал|потерял)",
-  ),
-  r(
-    "dissatisfied",
-    30,
-    "лаги",
-    "(лаги|лагает|фризы|тормозит|краши|вылетает|пинг).{0,25}(сервер|постоянно|ужас|невозможно|всегда)?",
-  ),
-  r(
-    "dissatisfied",
-    25,
-    "читеры",
-    "(читер\\S*|читаки|cheater\\S*|hacker\\S*).{0,25}(везде|полно|куча|никто не банит|full|every)",
-  ),
-  r(
-    "dissatisfied",
-    35,
     "разочаровался",
-    "(разочаровал\\S*|надоел\\S* сервер|сервер (отстой|говно|помойка|дно|скатился))",
+    "разочаровал\\S*|раньше было (лучше|живее|норм)|раньше (сервер|проект) был",
   ),
   r(
     "dissatisfied",
-    30,
-    "раньше было лучше",
-    "раньше (было|сервер был) (лучше|норм|живее)",
+    40,
+    "донат-помойка",
+    "(донат|donate).{0,30}(помойк|грабеж|дорог|решает|ужас|бред|развод|выкачива|без вложений)|пей ту вин|pay to win|p2w",
+  ),
+  r(
+    "dissatisfied",
+    40,
+    "admin abuse",
+    "админ\\S*.{0,30}(абуз\\S*|беспредел|неадекват|поехали|охренели|офигели|оборзел|клоун|раздают себе|банят за вс|банят ни за)",
   ),
   r(
     "dissatisfied",
     40,
     "left the server",
-    "(quit|left|leaving).{0,20}(the )?server",
+    "(quit|left|leaving).{0,20}(the )?server|server (is )?(dead|died|empty|trash|garbage)",
+  ),
+
+  // ---- dissatisfied: weak (need another signal)
+  r(
+    "dissatisfied",
+    30,
+    "бан ни за что",
+    "(забанили|бан\\S*).{0,25}(ни за что|просто так|без причины|не разобрав)",
   ),
   r(
     "dissatisfied",
     30,
-    "server is dead",
-    "server (is )?(dead|died|empty|trash|garbage)",
+    "админы не реагируют",
+    "(админ\\S*|администрац\\S*|модер\\S*).{0,30}(даже не|ничего не дела|не рассматрива|не отвеча|игнор|забил)",
   ),
+  r(
+    "dissatisfied",
+    30,
+    "вайп опять",
+    "(вайп|wipe).{0,25}(опять|снова|каждый|третий|второй|достал|потерял)|(опять|снова).{0,10}(вайп|wipe)",
+  ),
+  r(
+    "dissatisfied",
+    30,
+    "лаги постоянно",
+    "(лаги|лагает|фризы|тормозит|краши|вылетает).{0,25}(постоянно|всегда|невозможн|ужас|каждый день|вечно)",
+  ),
+  r(
+    "dissatisfied",
+    25,
+    "читеры",
+    "(читер\\S*|читак\\S*|cheater\\S*|hacker\\S*).{0,25}(везде|полно|куча|никто не банит|full|every)|одни (читер|донатер)",
+  ),
+  r(
+    "dissatisfied",
+    30,
+    "мертвый онлайн",
+    "(онлайн|онлаин|народу|людей).{0,15}(мертв\\S*|ноль|0 |упал|никак|\\d{1,2} человек)",
+  ),
+  r(
+    "dissatisfied",
+    20,
+    "играть невозможно",
+    "(играть|играть там) невозможно|невозможно играть",
+  ),
+  r(
+    "dissatisfied",
+    40,
+    "устал от сервера",
+    `(устал|надоел\\S*) от (этого |этой )?${SRV}`,
+  ),
+  r("dissatisfied", 20, "не вернусь", "(больше )?(туда |сюда )?не вернусь"),
+  r("dissatisfied", 15, "надоело", "надоел\\S*|достал\\S*|задолбал\\S*"),
 
   // ---- newcomer: wants to start
   r(
     "newcomer",
-    40,
+    45,
+    "хочу в рп",
+    "(хочу|хотел\\S*) (в|на) (рп|rp)(\\s|$|,|\\.|!)",
+  ),
+  r(
+    "newcomer",
+    45,
     "хочу начать играть",
-    "(хочу|хотел бы|думаю|собираюсь).{0,15}(начать|поиграть|зайти|попробовать)",
+    "(хочу|хотел бы|хотела бы|думаю|собираюсь|решил)\\s.{0,10}(начать|попробовать) (играть|в рп|рп|гта|поиграть)",
+  ),
+  r(
+    "newcomer",
+    45,
+    "с чего начать",
+    "с чего (начать|начинать)|как (тут |вообще )*(начать|начинать)(\\s?играть)?\\s*\\?|как (туда|сюда) попасть",
+  ),
+  r(
+    "newcomer",
+    40,
+    "как зайти на сервер",
+    `как (зайти|подключиться|попасть|скачать|установить).{0,15}(на |в )?(${SRV}|рп|гта|игру)`,
+  ),
+  r(
+    "newcomer",
+    40,
+    "новичок",
+    "(новичок|новеньк\\S*|нуб|впервые|первый раз|никогда не играл\\S*|только начал\\S*|только купил\\S*).{0,30}(рп|играть|начать|игр|сервер|гта)",
   ),
   r(
     "newcomer",
     35,
-    "как зайти",
-    "как (зайти|начать|подключиться|скачать|установить|играть)",
+    "захотелось попробовать",
+    "захотел\\S* (попробовать|поиграть|начать)",
   ),
-  r("newcomer", 30, "новичок", "(новичок|нуб|впервые|первый раз|только начал)"),
   r(
     "newcomer",
-    35,
+    40,
     "how to join",
     "(how (do i|to) (join|start|play|download))|(new player|just started)",
   ),
@@ -175,6 +244,31 @@ const SPAM_PATTERNS: RegExp[] = [
 
 export function normalize(text: string): string {
   return text.toLowerCase().replace(/ё/g, "е").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Cheap gate in front of the LLM: anything that talks about servers, the game or starting
+ * to play. Measured on the eval corpora it lets through every labelled lead.
+ */
+const LLM_TOPIC =
+  /сервер|сервак|серв(\s|$)|server|проект|админ|модер|донат|вайп|онлайн|игра|игру|играть|играю|поиграть|(^|\s)(рп|rp)(\s|$|,)|гта|gta|самп|samp|майн|бан|новичок|новеньк|начать|перейти|переехать|переедем|попасть/;
+
+export function passesLlmPrefilter(
+  text: string,
+  rules: Classification,
+  competitorNames: string[] = [],
+): boolean {
+  if (
+    rules.reason === "looks like spam / self-promo" ||
+    rules.reason === "too short"
+  ) {
+    return false;
+  }
+  if (rules.score > 0) return true;
+  return (
+    LLM_TOPIC.test(normalize(text)) ||
+    findMentionedServers(text, competitorNames).length > 0
+  );
 }
 
 export function isSpam(text: string): boolean {
@@ -254,8 +348,10 @@ export function classifyByRules(
     ? ["seeking", perCategory.seeking]
     : entries[0];
   let score = entries.reduce((sum, [, v]) => sum + v, 0);
-  // A question to the audience is a strong "talk to me" signal.
-  if (t.includes("?")) score += 10;
+  // A question to the audience is a strong "talk to me" signal — for seekers and newcomers.
+  if (t.includes("?") && (perCategory.seeking || perCategory.newcomer)) {
+    score += 10;
+  }
   // Naming a competitor server together with a complaint means a concrete switch candidate.
   if (mentionedServers.length > 0 && perCategory.dissatisfied) score += 10;
   score = Math.min(100, Math.max(top, score));

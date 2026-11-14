@@ -62,6 +62,11 @@ export const campaignSchema = z.object({
   language: z.string().default("ru"),
   /** ISO 3166-1 alpha-2, passed to YouTube search as regionCode. */
   regionCode: z.string().optional(),
+  /**
+   * Ignore comments / messages older than N days: a two-year-old complaint is not a lead.
+   * Also the starting window for the first Discord scan.
+   */
+  maxCommentAgeDays: z.number().int().positive().max(3650).default(60),
   /** Only search videos published in the last N days. */
   publishedWithinDays: z.number().int().positive().default(30),
   maxVideosPerQuery: z.number().int().positive().max(50).default(15),

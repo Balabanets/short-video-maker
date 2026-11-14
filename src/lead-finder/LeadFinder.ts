@@ -1,9 +1,5 @@
 import { logger } from "../logger";
-import {
-  classifyByRules,
-  findMentionedServers,
-  normalize,
-} from "./classifier/rules";
+import { classifyByRules, passesLlmPrefilter } from "./classifier/rules";
 import { LlmClassifier } from "./classifier/llm";
 import type { LeadFinderConfig } from "./config";
 import { LeadStore } from "./LeadStore";
@@ -15,6 +11,7 @@ import {
   parseVideoId,
 } from "./sources/youtube";
 import { DiscordClient, DiscordChannel } from "./sources/discord";
+import { NewLead, TelegramNotifier } from "./notifier";
 import type {
   Campaign,
   CampaignConfig,
@@ -44,10 +41,13 @@ const quotaDay = () =>
 export class LeadFinder {
   private youtube: YouTubeClient | null;
   private discord: DiscordClient | null;
+  private notifier: TelegramNotifier | null;
   private llm: LlmClassifier | null;
   private running: Promise<ScanReport[]> | null = null;
   private timer: NodeJS.Timeout | null = null;
-  private quota = { day: quotaDay(), used: 0 };
+  private quota: { day: string; used: number };
+  /** New leads found during the campaign that is currently running (for notifications). */
+  private pendingNew: NewLead[] = [];
 
   constructor(
     public readonly config: LeadFinderConfig,
@@ -56,8 +56,20 @@ export class LeadFinder {
       youtube?: YouTubeClient | null;
       discord?: DiscordClient | null;
       llm?: LlmClassifier | null;
+      notifier?: TelegramNotifier | null;
     } = {},
   ) {
+    this.notifier =
+      deps.notifier !== undefined
+        ? deps.notifier
+        : config.telegram
+          ? new TelegramNotifier(
+              config.telegram.botToken,
+              config.telegram.chatId,
+              config.telegram.minScore,
+            )
+          : null;
+    this.quota = store.getQuota(quotaDay());
     this.discord =
       deps.discord !== undefined
         ? deps.discord
@@ -83,6 +95,10 @@ export class LeadFinder {
     return {
       youtubeConfigured: Boolean(this.youtube),
       discordConfigured: Boolean(this.discord),
+      telegramNotifications: this.notifier
+        ? { minScore: this.notifier.minScore }
+        : null,
+      llmUsage: this.llm ? this.llm.usage : null,
       llmClassifier: this.llm ? (this.config.llm?.model ?? "custom") : null,
       scanning: Boolean(this.running),
       scheduleMinutes: this.config.scanIntervalMinutes,
@@ -121,6 +137,17 @@ export class LeadFinder {
       inviteUrl: this.discord.inviteUrl(app.id),
       guilds: withChannels,
     };
+  }
+
+  async sendTestNotification() {
+    if (!this.notifier) {
+      throw new Error(
+        "TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID are not configured",
+      );
+    }
+    await this.notifier.send(
+      "✅ Lead finder подключён. Сюда будут приходить новые горячие лиды.",
+    );
   }
 
   // ---------------------------------------------------------------- scheduling
@@ -167,7 +194,7 @@ export class LeadFinder {
 
   private rollQuotaDay() {
     const day = quotaDay();
-    if (day !== this.quota.day) this.quota = { day, used: 0 };
+    if (day !== this.quota.day) this.quota = this.store.getQuota(day);
   }
 
   private ensureQuota(cost: number) {
@@ -190,6 +217,7 @@ export class LeadFinder {
       return await fn(this.youtube);
     } finally {
       this.quota.used += this.youtube.quotaUsed - before;
+      this.store.saveQuota(this.quota.day, this.quota.used);
     }
   }
 
@@ -242,6 +270,9 @@ export class LeadFinder {
     }
 
     this.store.markCampaignRun(campaign.id);
+    const found = this.pendingNew;
+    this.pendingNew = [];
+    await this.notifier?.notify(campaign.name, found, this.config.panelUrl);
     report.finishedAt = new Date().toISOString();
     report.quotaUnitsUsed = this.quota.used - quotaStart;
     this.store.saveScanRun(report);
@@ -257,13 +288,20 @@ export class LeadFinder {
       throw new Error("YOUTUBE_API_KEY is not configured (import-only mode)");
     }
     const videos = await this.collectVideos(campaign, report);
+    const cutoff = new Date(
+      Date.now() - campaign.maxCommentAgeDays * 86_400_000,
+    ).toISOString();
     for (const video of videos) {
       const state = this.store.getVideoScanState("youtube", video.videoId);
       if (this.scannedRecently(state)) continue;
       try {
         const comments = await this.yt(QUOTA_COST.list, (yt) =>
           yt.fetchComments(video, {
-            since: state?.newestCommentAt,
+            // Newest-first paging stops at whichever is later: last scan or the age cutoff.
+            since:
+              state?.newestCommentAt && state.newestCommentAt > cutoff
+                ? state.newestCommentAt
+                : cutoff,
             limit: campaign.maxCommentsPerVideo,
           }),
         );
@@ -324,7 +362,7 @@ export class LeadFinder {
     }
 
     const windowStart = new Date(
-      Date.now() - campaign.publishedWithinDays * 86_400_000,
+      Date.now() - campaign.maxCommentAgeDays * 86_400_000,
     ).toISOString();
     for (const channel of byId.values()) {
       const state = this.store.getVideoScanState("discord", channel.id);
@@ -436,10 +474,16 @@ export class LeadFinder {
     comments: RawComment[],
     ctx: ClassifyContext,
     campaignId: number | null,
-  ): Promise<{ classified: number; leadsFound: number; newLeads: number }> {
+  ): Promise<{
+    classified: number;
+    leadsFound: number;
+    newLeads: number;
+    newLeadItems: NewLead[];
+  }> {
     const fresh = this.store.filterUnseen(comments);
-    if (fresh.length === 0)
-      return { classified: 0, leadsFound: 0, newLeads: 0 };
+    if (fresh.length === 0) {
+      return { classified: 0, leadsFound: 0, newLeads: 0, newLeadItems: [] };
+    }
 
     const verdicts: Classification[] = fresh.map((c) =>
       classifyByRules(c.text, {
@@ -479,37 +523,33 @@ export class LeadFinder {
     }
 
     let leadsFound = 0;
-    let newLeads = 0;
+    const newLeadItems: NewLead[] = [];
     fresh.forEach((c, i) => {
       const v = verdicts[i];
       if (v.category === "irrelevant" || v.score < ctx.minScore) return;
-      const { isNew } = this.store.saveLead(c, v, campaignId);
+      const { isNew, leadId } = this.store.saveLead(c, v, campaignId);
       leadsFound++;
-      if (isNew) newLeads++;
+      if (isNew) newLeadItems.push({ leadId, comment: c, verdict: v });
     });
     this.store.markSeen(fresh);
-    return { classified: fresh.length, leadsFound, newLeads };
+    this.pendingNew.push(...newLeadItems);
+    return {
+      classified: fresh.length,
+      leadsFound,
+      newLeads: newLeadItems.length,
+      newLeadItems,
+    };
   }
 
-  /** Cheap gate in front of the LLM: rules found something, or the comment talks about servers at all. */
   private worthLlm(
     c: RawComment,
     rules: Classification,
     ctx: ClassifyContext,
   ): boolean {
-    if (
-      rules.reason === "looks like spam / self-promo" ||
-      rules.reason === "too short"
-    )
-      return false;
-    if (this.config.llm?.prefilter === "all") return true;
-    if (rules.score > 0) return true;
-    const t = normalize(c.text);
-    return (
-      /сервер|server|проект|админ|донат|вайп|онлайн|играть|играю|поиграть/.test(
-        t,
-      ) || findMentionedServers(c.text, ctx.competitorNames).length > 0
-    );
+    if (this.config.llm?.prefilter === "all") {
+      return rules.reason !== "looks like spam / self-promo";
+    }
+    return passesLlmPrefilter(c.text, rules, ctx.competitorNames);
   }
 
   // ---------------------------------------------------------------- import (TikTok etc.)
@@ -528,10 +568,21 @@ export class LeadFinder {
         commentUrl: i.commentUrl ?? i.videoUrl,
       };
     });
-    return this.processComments(
+    const result = await this.processComments(
       parsed,
       campaign ?? DEFAULT_IMPORT_CONTEXT,
       campaign?.id ?? null,
     );
+    // Notified right here, so they must not also be reported by a scan running in parallel.
+    this.pendingNew = this.pendingNew.filter(
+      (x) => !result.newLeadItems.includes(x),
+    );
+    await this.notifier?.notify(
+      `Импорт${campaign ? ` (${campaign.name})` : ""}`,
+      result.newLeadItems,
+      this.config.panelUrl,
+    );
+    const { newLeadItems: _items, ...summary } = result;
+    return summary;
   }
 }

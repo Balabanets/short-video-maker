@@ -63,6 +63,27 @@ export function createLeadFinderRouter(finder: LeadFinder): express.Router {
   const router = express.Router();
   router.use(express.json({ limit: "5mb" }));
 
+  if (finder.config.corsOrigin) {
+    const origin = finder.config.corsOrigin;
+    router.use((req: Request, res: Response, next: NextFunction) => {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Vary", "Origin");
+      res.setHeader(
+        "Access-Control-Allow-Headers",
+        "authorization, content-type",
+      );
+      res.setHeader(
+        "Access-Control-Allow-Methods",
+        "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+      );
+      if (req.method === "OPTIONS") {
+        res.sendStatus(204);
+        return;
+      }
+      next();
+    });
+  }
+
   if (finder.config.apiToken) {
     const token = finder.config.apiToken;
     router.use((req: Request, res: Response, next: NextFunction) => {
@@ -171,6 +192,14 @@ export function createLeadFinderRouter(finder: LeadFinder): express.Router {
     }),
   );
 
+  router.post(
+    "/notify/test",
+    handle(async (_req, res) => {
+      await finder.sendTestNotification();
+      res.json({ sent: true });
+    }),
+  );
+
   router.get(
     "/scans",
     handle((_req, res) => res.json({ scans: finder.store.listScanRuns() })),
@@ -195,11 +224,12 @@ export function createLeadFinderRouter(finder: LeadFinder): express.Router {
     "/export.csv",
     handle((req, res) => {
       const q = leadQuerySchema.parse(req.query);
-      const { items } = finder.store.listLeads({
-        ...q,
-        limit: 500,
-        offset: q.offset ?? 0,
-      });
+      const items = [];
+      for (let offset = 0; ; offset += 500) {
+        const page = finder.store.listLeads({ ...q, limit: 500, offset });
+        items.push(...page.items);
+        if (page.items.length < 500) break;
+      }
       const header = [
         "id",
         "platform",

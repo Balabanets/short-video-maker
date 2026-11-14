@@ -62,6 +62,13 @@ Return one result per input comment, using the same index.`;
 
 export class LlmClassifier {
   private client: Anthropic;
+  /** Token usage since start — shown in /status so the operator sees what classification costs. */
+  public usage = {
+    requests: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+  };
 
   constructor(
     private model: string,
@@ -161,6 +168,11 @@ export class LlmClassifier {
       ],
       messages: [{ role: "user", content: userText }],
     });
+
+    this.usage.requests++;
+    this.usage.inputTokens += response.usage.input_tokens;
+    this.usage.outputTokens += response.usage.output_tokens;
+    this.usage.cacheReadTokens += response.usage.cache_read_input_tokens ?? 0;
 
     if (response.stop_reason === "refusal") {
       logger.warn(

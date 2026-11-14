@@ -102,6 +102,11 @@ CREATE TABLE IF NOT EXISTS scanned_videos (
   PRIMARY KEY (platform, video_id)
 );
 
+CREATE TABLE IF NOT EXISTS quota_usage (
+  day TEXT PRIMARY KEY,
+  used INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS scan_runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   campaign_id INTEGER,
@@ -207,6 +212,24 @@ export class LeadStore {
       createdAt: String(row.created_at),
       lastRunAt: (row.last_run_at as string) ?? null,
     };
+  }
+
+  // ---------------------------------------------------------------- quota
+
+  /** YouTube units spent on a (Pacific-time) day — survives restarts so the budget holds. */
+  getQuota(day: string): { day: string; used: number } {
+    const row = this.db
+      .prepare("SELECT used FROM quota_usage WHERE day = ?")
+      .get(day) as Row | undefined;
+    return { day, used: row ? Number(row.used) : 0 };
+  }
+
+  saveQuota(day: string, used: number) {
+    this.db
+      .prepare(
+        "INSERT INTO quota_usage (day, used) VALUES (?, ?) ON CONFLICT (day) DO UPDATE SET used = excluded.used",
+      )
+      .run(day, used);
   }
 
   // ---------------------------------------------------------------- scanning state
@@ -566,6 +589,41 @@ export class LeadStore {
       topChannels: all<{ channel: string; leads: number }>(
         `SELECT video_channel_title AS channel, COUNT(DISTINCT lead_id) AS leads FROM comments
          WHERE video_channel_title IS NOT NULL GROUP BY video_channel_title ORDER BY leads DESC LIMIT 20`,
+      ),
+      /**
+       * Feedback loop: how leads found by each signal ended up after you worked them.
+       * A signal with many "rejected" is noise for your niche — drop it or raise minScore.
+       */
+      signalQuality: all<{
+        signal: string;
+        leads: number;
+        worked: number;
+        rejected: number;
+        positive: number;
+      }>(
+        `SELECT signal, COUNT(*) AS leads,
+                SUM(status != 'new') AS worked,
+                SUM(status = 'rejected') AS rejected,
+                SUM(status IN ('contacted', 'subscribed', 'converted')) AS positive
+         FROM (
+           SELECT DISTINCT l.id, l.status,
+                  CASE WHEN c.classifier = 'llm' AND j.value IS NULL THEN 'claude' ELSE j.value END AS signal
+           FROM leads l JOIN comments c ON c.lead_id = l.id
+           LEFT JOIN json_each(c.matched_keywords) j
+         ) WHERE signal IS NOT NULL
+         GROUP BY signal ORDER BY leads DESC LIMIT 40`,
+      ),
+      byCampaign: all<{
+        campaignId: number;
+        name: string;
+        leads: number;
+        positive: number;
+      }>(
+        `SELECT c.campaign_id AS campaignId, COALESCE(k.name, 'импорт') AS name,
+                COUNT(DISTINCT c.lead_id) AS leads,
+                COUNT(DISTINCT CASE WHEN l.status IN ('contacted','subscribed','converted') THEN l.id END) AS positive
+         FROM comments c JOIN leads l ON l.id = c.lead_id LEFT JOIN campaigns k ON k.id = c.campaign_id
+         GROUP BY c.campaign_id ORDER BY leads DESC`,
       ),
       videosScanned: Number(
         (

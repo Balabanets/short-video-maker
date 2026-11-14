@@ -1,5 +1,10 @@
 import { describe, expect, test } from "vitest";
-import { classifyByRules, findMentionedServers } from "./rules";
+import {
+  classifyByRules,
+  findMentionedServers,
+  passesLlmPrefilter,
+} from "./rules";
+import { EVAL_CORPUS, HOLDOUT_CORPUS } from "./eval-corpus";
 
 describe("classifyByRules", () => {
   test.each([
@@ -57,4 +62,32 @@ describe("classifyByRules", () => {
       "Arizona",
     ]);
   });
+});
+
+describe("eval corpora", () => {
+  for (const [name, set] of [
+    ["train", EVAL_CORPUS],
+    ["holdout", HOLDOUT_CORPUS],
+  ] as const) {
+    test(`${name}: no false positives, every lead reaches the LLM prefilter`, () => {
+      const falsePositives: string[] = [];
+      const prefilterMisses: string[] = [];
+      let found = 0;
+      let leads = 0;
+      for (const s of set) {
+        const r = classifyByRules(s.text);
+        const predicted = r.category !== "irrelevant" && r.score >= 40;
+        if (s.lead) {
+          leads++;
+          if (predicted) found++;
+          if (!passesLlmPrefilter(s.text, r)) prefilterMisses.push(s.text);
+        } else if (predicted) {
+          falsePositives.push(s.text);
+        }
+      }
+      expect(falsePositives).toEqual([]);
+      expect(prefilterMisses).toEqual([]);
+      expect(found / leads).toBeGreaterThanOrEqual(0.9);
+    });
+  }
 });

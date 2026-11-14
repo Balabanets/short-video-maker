@@ -184,13 +184,10 @@ describe("Discord source", () => {
       .get(`/channels/${GENERAL}`)
       .reply(200, { id: GENERAL, type: 0, name: "общение", guild_id: GUILD });
     let afterParam = "";
-    nock(API)
-      .get(`/channels/${GENERAL}/messages`)
-      .query(true)
-      .reply(429, {
-        message: "You are being rate limited.",
-        retry_after: 0.01,
-      });
+    nock(API).get(`/channels/${GENERAL}/messages`).query(true).reply(429, {
+      message: "You are being rate limited.",
+      retry_after: 0.01,
+    });
     nock(API)
       .get(`/channels/${GENERAL}/messages`)
       .query((q) => {
